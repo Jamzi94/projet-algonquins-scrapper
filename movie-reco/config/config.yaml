@@ -1,0 +1,30 @@
+project: movreco
+language: fr                 # langue des labels et synopsis (fr, en, ...)
+
+catalog:
+  # bornes du catalogue de candidats recupere depuis Wikidata
+  year_min: 1980
+  year_max: 2025
+  max_per_year: 1500         # plafond de films par annee (evite les timeouts SPARQL)
+
+matching:
+  fuzzy_threshold: 86        # score rapidfuzz minimal pour accepter un appariement
+
+embeddings:
+  model: paraphrase-multilingual-MiniLM-L12-v2   # multilingue, adapte au francais
+  batch_size: 64
+
+recommend:
+  top_n: 20
+  candidates: 400            # nb de candidats recuperes par FAISS avant re-ranking
+  mmr_lambda: 0.7            # 1.0 = pertinence pure, 0.0 = diversite pure
+  popularity_penalty: 0.15   # 0 = aucun de-biais, plus haut = penalise les blockbusters
+
+wikidata:
+  endpoint: https://query.wikidata.org/sparql
+  user_agent: "movreco/0.1 (https://example.org; mailto:contact@example.org)"
+  timeout: 60
+
+llm:
+  enabled: false             # true pour activer le re-ranking et les explications LLM
+  model: claude-sonnet-4-6
