@@ -29,6 +29,23 @@ def _cfg() -> dict:
     return load_config()
 
 
+def _cache_dir(cfg: dict) -> str | None:
+    """Dossier de cache absolu si le cache est actif, sinon None.
+
+    Respecte cfg["cache"]["dir"] (relatif resolu contre la racine du projet),
+    avec repli sur ROOT/data/cache. Renvoie None quand le cache est desactive.
+    """
+    cache_cfg = cfg.get("cache", {}) or {}
+    if not cache_cfg.get("enabled", True):
+        return None
+    root = Path(cfg.get("_root", "."))
+    cdir = cache_cfg.get("dir")
+    d = Path(cdir) if cdir else root / "data" / "cache"
+    if not d.is_absolute():
+        d = root / d
+    return str(d)
+
+
 def _load_aligned_emb(P: dict, items: pd.DataFrame) -> np.ndarray:
     """Charge les embeddings et les réaligne sur `items` (contrat align_embeddings)."""
     from movreco.features.combine import align_embeddings
@@ -119,6 +136,12 @@ def ingest(
     matched.dropna(subset=["qid"])[["qid", "rating"]].to_parquet(P["rated"])
     report = data_path("processed", "matching_report.csv")
     matched.to_csv(report, index=False)
+    # Le catalogue vient d'etre re-recupere : l'ordre des lignes SPARQL n'est pas
+    # garanti stable et un film peut etre remplace a effectif constant. L'index FAISS
+    # persistant a pu etre construit sur l'ancien ordre/contenu et build_or_load ne
+    # detecte pas un changement a ntotal/dimension constants -> on l'invalide ici
+    # (comme embed) pour que recommend reconstruise un index aligne.
+    P["faiss"].unlink(missing_ok=True)
 
     rprint(f"[green]items : {len(items)} | notes utilisables : {n_ok}[/green]")
     rprint(f"Rapport d'appariement (a verifier) : {report}")
@@ -140,10 +163,15 @@ def synopsis():
     titles = wikidata.get_wikipedia_titles(items["qid"].tolist(), cfg)
 
     session = requests.Session()
+    cache_dir = _cache_dir(cfg)
     rows = []
     for qid in tqdm.tqdm(items["qid"].tolist(), desc="synopsis"):
         title = titles.get(qid)
-        text = syn.fetch_summary(title, cfg.get("language", "fr"), session) if title else None
+        text = (
+            syn.fetch_summary(title, cfg.get("language", "fr"), session, cache_dir=cache_dir)
+            if title
+            else None
+        )
         rows.append({"qid": qid, "text": text})
 
     sdf = pd.DataFrame(rows)
@@ -175,6 +203,9 @@ def embed():
     P["embeddings"].parent.mkdir(parents=True, exist_ok=True)
     np.save(P["embeddings"], emb)
     P["emb_ids"].write_text(json.dumps(items["qid"].tolist()))
+    # Invalide l'index FAISS persistant : meme nombre de lignes mais contenu/ordre
+    # potentiellement different -> recommend reconstruira un index aligne.
+    P["faiss"].unlink(missing_ok=True)
     rprint(f"[green]embeddings : {emb.shape}[/green]")
 
 
@@ -261,6 +292,7 @@ def recommend(
         rprint("[yellow]Aucun modele entraine, repli sur le mode mvp.[/yellow]")
         mode = "mvp"
 
+    P["faiss"].parent.mkdir(parents=True, exist_ok=True)
     result = run_reco(
         items,
         emb,
@@ -270,6 +302,7 @@ def recommend(
         structured=structured,
         model=model,
         cfg=cfg,
+        index_path=P["faiss"],
     )
 
     expl = None
@@ -314,10 +347,24 @@ def evaluate():
     structured = pd.read_parquet(P["structured"])
     rated = pd.read_parquet(P["rated"])
 
-    X = feature_matrix(rated["qid"].tolist(), items, emb, structured)
+    qids = rated["qid"].tolist()
+    X = feature_matrix(qids, items, emb, structured)
     y = rated["rating"].values.astype(float)
-    mae = ev.loo_mae(X, y, lambda a, b: preference.train(a, b, cfg))
+    train_fn = lambda a, b: preference.train(a, b, cfg)
+
+    mae = ev.loo_mae(X, y, train_fn)
     rprint(f"[green]MAE leave-one-out : {mae:.3f}[/green]")
+
+    # NDCG@k sur split temporel : dates des films notes (jointure qid -> date).
+    date_by_qid = dict(zip(items["qid"], items["date"]))
+    dates = [date_by_qid.get(q) for q in qids]
+    ec = cfg.get("evaluate", {})
+    ndcg = ev.temporal_ndcg(
+        X, y, dates, train_fn,
+        k=ec.get("ndcg_k", 10),
+        holdout_frac=ec.get("holdout_frac", 0.3),
+    )
+    rprint(f"[green]{ev.format_metric('NDCG@k (split temporel)', ndcg)}[/green]")
 
 
 if __name__ == "__main__":

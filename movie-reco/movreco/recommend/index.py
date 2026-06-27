@@ -30,3 +30,28 @@ def load_index(path):
     import faiss
 
     return faiss.read_index(str(path))
+
+
+def build_or_load(emb: np.ndarray, path):
+    """Réutilise l'index persistant si compatible, sinon le (re)construit.
+
+    Charge l'index depuis `path` et le renvoie s'il existe et que son `ntotal`
+    ET sa dimension `d` correspondent à `emb` (shape[0] et shape[1]). Sinon
+    (absent, corrompu, désaligné ou dimension changée), construit un nouvel index,
+    l'écrit à `path` et le renvoie. Garantit l'alignement avec les lignes de `emb`.
+    """
+    from pathlib import Path
+
+    p = Path(path)
+    if p.exists():
+        try:
+            idx = load_index(p)
+            if idx.ntotal == emb.shape[0] and idx.d == emb.shape[1]:
+                return idx
+        except Exception:
+            pass
+
+    index = build_index(emb)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    save_index(index, p)
+    return index

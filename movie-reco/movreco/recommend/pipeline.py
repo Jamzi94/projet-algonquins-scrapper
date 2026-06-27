@@ -21,6 +21,7 @@ def recommend(
     model=None,
     cfg: dict | None = None,
     exclude=None,
+    index_path=None,
 ) -> pd.DataFrame:
     """Produit le top-N de recommandations.
 
@@ -46,7 +47,10 @@ def recommend(
         mnorm = np.linalg.norm(mean)
         taste = (mean / mnorm if mnorm else mean).astype("float32")
 
-    index = faiss_index.build_index(emb)
+    if index_path is not None:
+        index = faiss_index.build_or_load(emb, index_path)
+    else:
+        index = faiss_index.build_index(emb)
     cand_pos, _ = faiss_index.search(index, taste, min(n_cand, len(qids)))
 
     excluded = set(exclude or []) | set(rated_qids)

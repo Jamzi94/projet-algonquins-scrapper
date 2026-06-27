@@ -7,9 +7,13 @@ from __future__ import annotations
 
 import time
 import unicodedata
+from pathlib import Path
 from typing import Iterable
 
 import requests
+
+from movreco.ingest import cache
+from movreco.ingest.cache import make_key
 
 PREFIXES = """
 PREFIX wikibase: <http://wikiba.se/ontology#>
@@ -29,8 +33,36 @@ def _chunks(seq: list, size: int) -> Iterable[list]:
         yield seq[i : i + size]
 
 
+def _cache_dir(cfg: dict) -> Path:
+    """Dossier de cache absolu (cfg.cache.dir sinon ROOT/data/cache).
+
+    Un chemin relatif est resolu contre la racine du projet (cfg["_root"]), comme
+    cli._cache_dir, pour que les deux etapes du pipeline pointent au meme endroit
+    quel que soit le repertoire courant.
+    """
+    root = Path(cfg.get("_root", "."))
+    cdir = cfg.get("cache", {}).get("dir")
+    d = Path(cdir) if cdir else root / "data" / "cache"
+    if not d.is_absolute():
+        d = root / d
+    return d
+
+
 def run_sparql(query: str, cfg: dict, retries: int = 3) -> list[dict]:
-    """Exécute une requête SPARQL et renvoie une liste de lignes (valeurs simples)."""
+    """Exécute une requête SPARQL et renvoie une liste de lignes (valeurs simples).
+
+    Si le cache est activé (cfg.cache.enabled, défaut True), une requête déjà vue
+    est servie depuis le disque ; le réseau n'est sollicité que sur cache miss.
+    """
+    cache_cfg = cfg.get("cache", {})
+    use_cache = cache_cfg.get("enabled", True)
+    key = make_key(query) if use_cache else None
+    cache_dir = _cache_dir(cfg) if use_cache else None
+    if use_cache:
+        hit = cache.cache_get(cache_dir, key)
+        if hit is not None:
+            return hit
+
     wd = cfg["wikidata"]
     headers = {
         "User-Agent": wd["user_agent"],
@@ -50,7 +82,10 @@ def run_sparql(query: str, cfg: dict, retries: int = 3) -> list[dict]:
             time.sleep(2 ** attempt)
             continue
         if r.status_code == 200:
-            return _simplify(r.json())
+            rows = _simplify(r.json())
+            if use_cache:
+                cache.cache_set(cache_dir, key, rows)
+            return rows
         if r.status_code in (429, 500, 502, 503, 504):
             backoff = 2 ** attempt
             if r.status_code == 429:

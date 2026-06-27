@@ -29,10 +29,23 @@ movreco embed                  # calcule les embeddings
 movreco features               # features structurees (genres, realisateurs, ...)
 movreco train                  # entraine le modele de preference (mode hybride)
 movreco recommend --mode hybrid   # ou --mode mvp pour la version embeddings seule
-movreco evaluate               # MAE leave-one-out
+movreco evaluate               # MAE leave-one-out + NDCG@k (split temporel)
 ```
 Artefacts dans `data/processed/` et `models/`. Vérifie `data/processed/matching_report.csv`
 après l'ingestion (l'appariement titre/année est imparfait).
+
+## Performance et évaluation
+- **Cache réseau** : les requêtes Wikidata (SPARQL) et Wikipedia (synopsis) sont mises en
+  cache sur disque sous `data/cache/` (clé = hash du contenu). Relancer `ingest`/`synopsis`
+  ne retouche pas le réseau pour ce qui est déjà connu. Configurable via le bloc `cache`
+  de `config.yaml` (`enabled`, `dir`) ; supprimer le dossier vide le cache.
+- **Index FAISS persistant** : `recommend` réutilise l'index sauvegardé dans
+  `models/catalog.faiss` s'il est compatible (même nombre de vecteurs), sinon il le
+  reconstruit et le réécrit. Plus de reconstruction systématique à chaque reco.
+- **NDCG@k temporel** : `evaluate` affiche, en plus de la MAE leave-one-out, un NDCG@k
+  sur découpage temporel (entraînement sur les films les plus anciens, évaluation du
+  classement sur les plus récents). Réglable via `evaluate.ndcg_k` et
+  `evaluate.holdout_frac` ; affiché « indisponible » si trop peu de films notés.
 
 ## Tests
 ```bash

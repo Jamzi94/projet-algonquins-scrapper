@@ -42,6 +42,7 @@ def paths(cfg: dict | None = None) -> dict:
         "embeddings": data_dir / "processed" / "embeddings.npy",
         "emb_ids": data_dir / "processed" / "embeddings_ids.json",
         "structured": data_dir / "processed" / "structured.parquet",
+        "cache": data_dir / "cache",
         "faiss": models_dir / "catalog.faiss",
         "model": models_dir / "preference.joblib",
     }

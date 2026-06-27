@@ -23,6 +23,14 @@ recommend:
 model:
   min_train: 20             # nb minimal de films notes pour autoriser le mode hybride
 
+evaluate:
+  ndcg_k: 10                # k du NDCG@k sur le split temporel
+  holdout_frac: 0.3         # fraction des films les plus recents reservee a l'evaluation
+
+cache:
+  enabled: true             # met en cache les appels Wikidata/Wikipedia sur disque
+  dir: data/cache           # dossier de cache (relatif a la racine du projet si non absolu)
+
 wikidata:
   endpoint: https://query.wikidata.org/sparql
   # PLACEHOLDER : remplacer "example.org" par un contact reel (politique User-Agent Wikimedia).

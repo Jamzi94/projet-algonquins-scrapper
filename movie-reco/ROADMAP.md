@@ -25,11 +25,11 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 - [ ] `movreco features` : enrichir les features structurées (acteurs P161, mots-clés, durée, langue).
 - [ ] `movreco train` : viser une MAE leave-one-out raisonnable ; itérer sur les features.
 - [ ] `movreco recommend --mode hybrid` : comparer au mode mvp sur ta revue qualitative.
-- [ ] Ajouter une vraie évaluation de classement (NDCG@k sur split temporel) dans `model/evaluate.py`.
+- [x] Ajouter une vraie évaluation de classement (NDCG@k sur split temporel) dans `model/evaluate.py`.
 
 ## Phase 3 — Robustesse et produit
-- [ ] Mettre en cache les appels Wikidata/Wikipedia (éviter de refaire les requêtes).
-- [ ] Persister l'index FAISS (`save_index`/`load_index`) au lieu de le reconstruire à chaque reco.
+- [x] Mettre en cache les appels Wikidata/Wikipedia (éviter de refaire les requêtes).
+- [x] Persister l'index FAISS (`save_index`/`load_index`) au lieu de le reconstruire à chaque reco.
 - [ ] Boucle d'apprentissage actif : proposer en priorité des films à fort gain d'information.
 - [ ] Sérendipité contrôlée : réserver une fraction du top-N à des items pertinents mais éloignés.
 - [ ] Exposer une petite API (FastAPI) ou une UI si besoin produit.
