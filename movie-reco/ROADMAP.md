@@ -6,6 +6,9 @@ la couche de retrieval du système hybride : rien n'est jeté.
 Statut du squelette : le pipeline complet est posé et importable. Les étapes
 ci-dessous consistent à fiabiliser, tester sur données réelles, et raffiner.
 
+Correctifs déjà appliqués : garde-fou d'alignement des embeddings (`emb_ids`),
+normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de notes.
+
 ## Phase 0 — Préparation
 - [ ] Copier `data/input/ratings.example.csv` en `data/input/ratings.csv` et y mettre ta vraie liste (colonnes : title, year, rating).
 - [ ] Choisir l'échelle de notes et la garder cohérente (ex. 0-10 avec décimales, ou 0-100).

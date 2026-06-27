@@ -14,6 +14,30 @@ import numpy as np
 import pandas as pd
 
 
+def align_embeddings(emb: np.ndarray, emb_ids, items: pd.DataFrame) -> np.ndarray:
+    """Réaligne `emb` sur l'ordre des lignes de `items` (clé : items["qid"]).
+
+    - `emb_ids` est le contenu de embeddings_ids.json (liste de qid) ou None.
+    - Si None : suppose que `emb` est déjà aligné sur `items` (même longueur).
+    - Si fourni : réordonne `emb` pour que la ligne i corresponde à items["qid"][i].
+    """
+    if emb_ids is None:
+        if len(emb) != len(items):
+            raise ValueError(
+                "Embeddings désynchronisés : relancez 'movreco embed' après 'ingest'."
+            )
+        return emb
+    pos = {q: i for i, q in enumerate(emb_ids)}
+    idx = []
+    for q in items["qid"].values:
+        if q not in pos:
+            raise ValueError(
+                "Embeddings désynchronisés : relancez 'movreco embed' après 'ingest'."
+            )
+        idx.append(pos[q])
+    return emb[idx]
+
+
 def feature_matrix(qids, items: pd.DataFrame, emb: np.ndarray, structured: pd.DataFrame) -> np.ndarray:
     pos = {q: i for i, q in enumerate(items["qid"].values)}
     emb_dim = emb.shape[1]

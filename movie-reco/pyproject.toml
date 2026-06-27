@@ -7,6 +7,8 @@ name = "movreco"
 version = "0.1.0"
 description = "Recommandeur de films personnel base sur Wikidata (CC0) et embeddings semantiques"
 requires-python = ">=3.11"
+# Placeholder a confirmer par le proprietaire : remplacer par la licence definitive.
+license = {text = "Proprietary - à définir"}
 dependencies = [
   "requests>=2.31",
   "pandas>=2.1",
@@ -23,11 +25,12 @@ dependencies = [
   "scikit-learn>=1.4",
   "lightgbm>=4.3",
   "joblib>=1.3",
-  "anthropic>=0.39",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# Couche LLM optionnelle (re-ranking/explications) : pip install -e ".[llm]"
+llm = ["anthropic>=0.39"]
 
 [project.scripts]
 movreco = "movreco.cli:app"

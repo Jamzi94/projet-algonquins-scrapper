@@ -28,6 +28,21 @@ def _year(date: str | None) -> str | None:
     return date[:4] if date else None
 
 
+def _as_int_year(value) -> int | None:
+    """Convertit une année en entier exploitable, ou None (gère NaN/None/non-numérique)."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):  # NaN flottant, NaT, etc.
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(str(value).strip()[:4])
+    except (TypeError, ValueError):
+        return None
+
+
 def match_ratings(ratings: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     """Pour chaque film noté, trouve la meilleure entité Wikidata.
 
@@ -39,18 +54,16 @@ def match_ratings(ratings: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     for _, row in ratings.iterrows():
         title = row["title"]
         year = row.get("year")
+        user_year = _as_int_year(year)
         candidates = wikidata.lookup_film(title, cfg)
         best, best_score = None, -1.0
         norm_title = normalize_title(title)
         for cand in candidates:
             score = fuzz.token_sort_ratio(norm_title, normalize_title(cand.get("filmLabel", "")))
-            cand_year = _year(cand.get("date"))
-            if year and cand_year:
-                try:
-                    if abs(int(cand_year) - int(year)) <= 1:
-                        score += 10
-                except (TypeError, ValueError):
-                    pass
+            cand_year = _as_int_year(_year(cand.get("date")))
+            if user_year is not None and cand_year is not None:
+                if abs(cand_year - user_year) <= 1:
+                    score += 10
             if score > best_score:
                 best_score, best = score, cand
         matched = best if (best and best_score >= thr) else None

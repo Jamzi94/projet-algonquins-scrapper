@@ -22,6 +22,11 @@ def loo_mae(X, y, train_fn) -> float:
 
     `train_fn(X_train, y_train)` doit renvoyer un modèle compatible avec
     movreco.model.preference.predict.
+
+    Renvoie ``nan`` si moins de 3 films sont notés (n < 3) : le leave-one-out
+    n'a alors pas assez de points pour produire une estimation fiable (un seul
+    film en apprentissage). Les appelants doivent traiter ``nan`` comme
+    « métrique indisponible » et non comme une erreur de zéro.
     """
     from movreco.model.preference import predict
 
@@ -38,3 +43,10 @@ def loo_mae(X, y, train_fn) -> float:
         pred = predict(model, X[i : i + 1])[0]
         errors.append(abs(pred - y[i]))
     return float(np.mean(errors))
+
+
+def format_metric(name: str, value: float) -> str:
+    """Formate une métrique pour l'affichage/log (gère ``nan`` proprement)."""
+    if value != value:  # nan
+        return f"{name} : indisponible (pas assez de films notés)"
+    return f"{name} : {value:.4f}"

@@ -8,7 +8,8 @@ Ce projet vise un usage commercial. Synthèse des obligations.
 Domaine public. Aucune restriction, redistribution libre y compris commerciale.
 Aucune obligation d'attribution (mais la citer reste courtois).
 
-### Wikipedia / DBpedia — CC BY-SA
+### Wikipedia — CC BY-SA
+Source active : texte récupéré via l'API REST Wikipedia (DBpedia non utilisé pour l'instant).
 Usage commercial autorisé, sous deux conditions :
 - **Attribution** : créditer Wikipedia et les auteurs.
 - **Partage à l'identique** : toute oeuvre dérivée du texte doit être publiée sous la même licence.

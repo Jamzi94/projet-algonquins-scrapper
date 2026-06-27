@@ -6,6 +6,7 @@ obligatoire (voir config.yaml > wikidata.user_agent).
 from __future__ import annotations
 
 import time
+import unicodedata
 from typing import Iterable
 
 import requests
@@ -51,10 +52,40 @@ def run_sparql(query: str, cfg: dict, retries: int = 3) -> list[dict]:
         if r.status_code == 200:
             return _simplify(r.json())
         if r.status_code in (429, 500, 502, 503, 504):
-            time.sleep(2 ** attempt)
+            backoff = 2 ** attempt
+            if r.status_code == 429:
+                backoff = _retry_after(r, default=backoff)
+            time.sleep(backoff)
             continue
         r.raise_for_status()
     raise RuntimeError(f"Echec de la requete SPARQL apres {retries} tentatives ({last_exc})")
+
+
+def _retry_after(resp: requests.Response, default: float) -> float:
+    """Durée d'attente déduite de l'en-tête Retry-After (sinon `default`).
+
+    Gère le format delta-secondes ainsi que le format HTTP-date.
+    """
+    value = resp.headers.get("Retry-After")
+    if not value:
+        return default
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        from datetime import datetime, timezone
+
+        when = parsedate_to_datetime(value)
+        if when is not None:
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
+    except (TypeError, ValueError):
+        pass
+    return default
 
 
 def _simplify(payload: dict) -> list[dict]:
@@ -64,10 +95,23 @@ def _simplify(payload: dict) -> list[dict]:
     return rows
 
 
+def _sparql_literal(value: str) -> str:
+    """Neutralise une valeur utilisateur insérée dans un littéral SPARQL entre guillemets.
+
+    Échappe d'abord le backslash, puis le guillemet double, et supprime les
+    retours à la ligne et autres caractères de contrôle (qui termineraient ou
+    casseraient le littéral).
+    """
+    s = str(value)
+    s = s.replace("\\", "\\\\").replace('"', '\\"')
+    s = "".join(ch for ch in s if ch == " " or unicodedata.category(ch)[0] != "C")
+    return s.strip()
+
+
 def lookup_film(title: str, cfg: dict, limit: int = 12) -> list[dict]:
     """Cherche des films Wikidata correspondant à un titre (via l'API EntitySearch)."""
-    safe = str(title).replace('"', " ").strip()
-    lang = cfg.get("language", "fr")
+    safe = _sparql_literal(title)
+    lang = _sparql_literal(cfg.get("language", "fr"))
     query = PREFIXES + f"""
     SELECT ?film ?filmLabel ?imdb ?date WHERE {{
       SERVICE wikibase:mwapi {{
@@ -108,6 +152,7 @@ def fetch_catalog_by_year(year: int, cfg: dict) -> list[dict]:
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
     }}
     GROUP BY ?film ?filmLabel ?imdb
+    ORDER BY DESC(?popularity)
     LIMIT {maxn}
     """
     return run_sparql(query, cfg)

@@ -29,6 +29,19 @@ def _cfg() -> dict:
     return load_config()
 
 
+def _load_aligned_emb(P: dict, items: pd.DataFrame) -> np.ndarray:
+    """Charge les embeddings et les réaligne sur `items` (contrat align_embeddings)."""
+    from movreco.features.combine import align_embeddings
+
+    emb = np.load(P["embeddings"])
+    emb_ids = json.loads(P["emb_ids"].read_text()) if P["emb_ids"].exists() else None
+    try:
+        return align_embeddings(emb, emb_ids, items)
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+
 def _normalize_catalog(df: pd.DataFrame) -> pd.DataFrame:
     cols = ["qid", "label", "genres", "directors", "countries", "date", "popularity", "imdb"]
     if df.empty:
@@ -63,6 +76,21 @@ def ingest(
         raise typer.Exit(1)
 
     rdf = pd.read_csv(ratings)
+    missing = [c for c in ("title", "rating") if c not in rdf.columns]
+    if missing:
+        rprint(f"[red]Colonnes requises manquantes :[/red] {', '.join(missing)}")
+        rprint("Format attendu : title,year,rating (voir data/input/ratings.example.csv).")
+        raise typer.Exit(1)
+    rdf["rating"] = pd.to_numeric(rdf["rating"], errors="coerce")
+    n_bad = int(rdf["rating"].isna().sum())
+    if n_bad:
+        rprint(f"[yellow]{n_bad} ligne(s) au rating invalide ecartee(s).[/yellow]")
+    rdf = rdf.dropna(subset=["rating"]).reset_index(drop=True)
+    if rdf.empty:
+        rprint("[red]Aucune ligne valide apres nettoyage des notes.[/red]")
+        raise typer.Exit(1)
+    if "year" in rdf.columns:
+        rdf["year"] = pd.to_numeric(rdf["year"], errors="coerce")
     rprint(f"[cyan]Appariement de {len(rdf)} films a Wikidata...[/cyan]")
     matched = matching.match_ratings(rdf, cfg)
     n_ok = int(matched["qid"].notna().sum())
@@ -173,7 +201,7 @@ def train():
     cfg = _cfg()
     P = paths(cfg)
     items = pd.read_parquet(P["items"])
-    emb = np.load(P["embeddings"])
+    emb = _load_aligned_emb(P, items)
     structured = pd.read_parquet(P["structured"])
     rated = pd.read_parquet(P["rated"])
 
@@ -220,9 +248,14 @@ def recommend(
         cfg["recommend"]["top_n"] = n
 
     items = pd.read_parquet(P["items"])
-    emb = np.load(P["embeddings"])
+    emb = _load_aligned_emb(P, items)
     rated = pd.read_parquet(P["rated"])
     structured = pd.read_parquet(P["structured"]) if P["structured"].exists() else None
+    if mode == "hybrid" and len(rated) < cfg.get("model", {}).get("min_train", 20):
+        rprint(
+            "[yellow]Echantillon trop petit pour le modele hybride, repli sur le mode mvp.[/yellow]"
+        )
+        mode = "mvp"
     model = preference.load(P["model"]) if (mode == "hybrid" and P["model"].exists()) else None
     if mode == "hybrid" and model is None:
         rprint("[yellow]Aucun modele entraine, repli sur le mode mvp.[/yellow]")
@@ -246,11 +279,20 @@ def recommend(
         liked = [label_by_qid.get(q) for q in liked_order if label_by_qid.get(q)]
         order = rerank.rerank_and_explain(liked, result["label"].tolist(), cfg)
         if order:
-            valid = [o for o in order if isinstance(o.get("index"), int) and 0 <= o["index"] < len(result)]
-            if valid:
-                idx = [o["index"] for o in valid]
-                result = result.iloc[idx].reset_index(drop=True)
-                expl = {i: valid[i].get("raison", "") for i in range(len(valid))}
+            n_pos = len(result)
+            ranked: list[int] = []
+            reasons: dict[int, str] = {}
+            for o in order:
+                i = o.get("index")
+                if isinstance(i, int) and 0 <= i < n_pos and i not in ranked:
+                    reasons[i] = o.get("raison", "")
+                    ranked.append(i)
+            # permutation complète : positions classées par le LLM puis le reste dans l'ordre du pipeline
+            perm = ranked + [i for i in range(n_pos) if i not in ranked]
+            if ranked:
+                result = result.iloc[perm].reset_index(drop=True)
+                # la raison est associée à la position FINALE des seuls items classés par le LLM
+                expl = {final: reasons[src] for final, src in enumerate(perm) if src in reasons}
 
     if result.empty:
         rprint("[yellow]Aucune recommandation (verifie que l'ingestion et les embeddings sont faits).[/yellow]")
@@ -268,7 +310,7 @@ def evaluate():
     cfg = _cfg()
     P = paths(cfg)
     items = pd.read_parquet(P["items"])
-    emb = np.load(P["embeddings"])
+    emb = _load_aligned_emb(P, items)
     structured = pd.read_parquet(P["structured"])
     rated = pd.read_parquet(P["rated"])
 

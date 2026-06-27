@@ -20,10 +20,19 @@ recommend:
   mmr_lambda: 0.7            # 1.0 = pertinence pure, 0.0 = diversite pure
   popularity_penalty: 0.15   # 0 = aucun de-biais, plus haut = penalise les blockbusters
 
+model:
+  min_train: 20             # nb minimal de films notes pour autoriser le mode hybride
+
 wikidata:
   endpoint: https://query.wikidata.org/sparql
+  # PLACEHOLDER : remplacer "example.org" par un contact reel (politique User-Agent Wikimedia).
   user_agent: "movreco/0.1 (https://example.org; mailto:contact@example.org)"
   timeout: 60
+
+# Chemins (optionnel) : surcharges des emplacements par defaut ROOT/data et ROOT/models.
+# paths:
+#   data_dir: data
+#   models_dir: models
 
 llm:
   enabled: false             # true pour activer le re-ranking et les explications LLM

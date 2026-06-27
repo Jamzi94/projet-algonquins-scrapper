@@ -13,6 +13,8 @@ def _topk_multihot(series_of_lists: pd.Series, top_k: int, prefix: str) -> pd.Da
             if value:
                 counter[value] += 1
     keep = [value for value, _ in counter.most_common(top_k)]
+    # Ordre déterministe : fréquence décroissante puis valeur alphabétique.
+    keep.sort(key=lambda value: (-counter[value], value))
     cols = {
         f"{prefix}__{value}": series_of_lists.apply(lambda lst, v=value: 1 if v in lst else 0)
         for value in keep
@@ -25,11 +27,16 @@ def build_structured_features(
     top_genres: int = 60,
     top_directors: int = 200,
     top_countries: int = 40,
+    columns: list[str] | None = None,
 ) -> pd.DataFrame:
     """Renvoie un DataFrame de features indexé par qid.
 
     `items` doit contenir : qid, genres, directors, countries, date
     (les colonnes genres/directors/countries sont des chaînes séparées par '|').
+
+    Si `columns` est fourni, la sortie est réindexée exactement sur ces colonnes
+    (colonnes absentes réintroduites à 0, colonnes en trop ignorées), ce qui
+    garantit un schéma identique entre entraînement et prédiction.
     """
     df = items.copy().reset_index(drop=True)
 
@@ -47,4 +54,6 @@ def build_structured_features(
     feats = pd.concat([genres, directors, countries, decade_oh], axis=1).fillna(0).astype("float32")
     feats.index = df["qid"].values
     feats.index.name = "qid"
+    if columns is not None:
+        feats = feats.reindex(columns=columns, fill_value=0).astype("float32")
     return feats

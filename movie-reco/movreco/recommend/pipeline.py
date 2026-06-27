@@ -37,11 +37,14 @@ def recommend(
     qids = list(items["qid"].values)
     posmap = {q: i for i, q in enumerate(qids)}
     rated_rows = [posmap[q] for q in rated_qids if q in posmap]
-    taste = (
-        signed_taste_vector(emb[rated_rows], ratings)
-        if rated_rows
-        else emb.mean(axis=0).astype("float32")
-    )
+    if rated_rows:
+        taste = signed_taste_vector(emb[rated_rows], ratings)
+    else:
+        # Aucune note appariée : repli sur la moyenne des embeddings, normalisée
+        # pour rester cohérent avec un index à produit scalaire (cosinus).
+        mean = emb.mean(axis=0)
+        mnorm = np.linalg.norm(mean)
+        taste = (mean / mnorm if mnorm else mean).astype("float32")
 
     index = faiss_index.build_index(emb)
     cand_pos, _ = faiss_index.search(index, taste, min(n_cand, len(qids)))
@@ -59,11 +62,15 @@ def recommend(
         scores = cosine_scores(taste, emb[cand_pos])
     scores = np.asarray(scores, dtype=float)
 
+    # L'échelle du score brut diffère selon le mode (cosinus ~[-1,1] vs note
+    # prédite ~0-10). On normalise en [0,1] AVANT la pénalité de popularité afin
+    # que celle-ci reste effective dans les deux modes, puis on s'en sert comme
+    # pertinence pour le MMR. Le score brut est conservé pour l'affichage.
     popularity = items.iloc[cand_pos]["popularity"].values if "popularity" in items.columns else None
-    scores = popularity_penalty(scores, popularity, pop_w)
+    relevance = popularity_penalty(minmax(scores), popularity, pop_w)
 
     sub_emb = emb[cand_pos]
-    chosen_pos, chosen_local = mmr(cand_pos, minmax(scores), sub_emb, top_n, lam)
+    chosen_pos, chosen_local = mmr(cand_pos, minmax(relevance), sub_emb, top_n, lam)
 
     result = items.iloc[chosen_pos][["qid", "label"]].copy()
     result["score"] = [float(scores[i]) for i in chosen_local]

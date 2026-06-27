@@ -1,8 +1,8 @@
 # movreco
 
 Recommandeur de films **personnel** à partir de ta liste de films notés, sans dépendre de TMDB.
-Données libres pour usage commercial : **Wikidata** (CC0) pour les métadonnées, **Wikipedia/DBpedia**
-(CC BY-SA) pour les synopsis. Voir `DATA_LICENSES.md`.
+Données libres pour usage commercial : **Wikidata** (CC0) pour les métadonnées, **Wikipedia**
+(CC BY-SA, via l'API REST ; DBpedia non utilisé pour l'instant) pour les synopsis. Voir `DATA_LICENSES.md`.
 
 Approche : mono-utilisateur en cold-start, donc *content-based + apprentissage de préférence supervisé*,
 avec retrieval par embeddings sémantiques. Cible hybride construite en deux temps (MVP embeddings d'abord).

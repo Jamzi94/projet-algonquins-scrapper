@@ -17,7 +17,7 @@ Cas technique : **mono-utilisateur en cold-start**. Le coeur est *content-based 
 ## Contraintes de données (CRITIQUE)
 **YOU MUST** n'utiliser que des sources libres pour usage commercial :
 - Métadonnées : **Wikidata uniquement** (CC0).
-- Texte/synopsis : **Wikipedia/DBpedia** (CC BY-SA, attribution + partage à l'identique).
+- Texte/synopsis : **Wikipedia** (CC BY-SA, attribution + partage à l'identique ; via l'API REST, DBpedia non utilisé pour l'instant).
 
 **NEVER** introduire dans le produit : MovieLens, datasets IMDb, API Trakt, ni TMDB. Tous imposent des restrictions commerciales ou une autorisation. Voir `DATA_LICENSES.md`.
 **IMPORTANT** : stocker des **embeddings** plutôt que republier le texte brut Wikipedia (limite l'exposition CC BY-SA).

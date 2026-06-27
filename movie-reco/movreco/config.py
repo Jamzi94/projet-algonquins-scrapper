@@ -27,14 +27,21 @@ def data_path(*parts: str) -> Path:
 
 
 def paths(cfg: dict | None = None) -> dict:
-    """Emplacements canoniques des artefacts produits par le pipeline."""
+    """Emplacements canoniques des artefacts produits par le pipeline.
+
+    Surcharges optionnelles via cfg["paths"]["data_dir"] / ["models_dir"]
+    (defauts : ROOT/data et ROOT/models).
+    """
+    paths_cfg = (cfg or {}).get("paths", {}) or {}
+    data_dir = Path(paths_cfg.get("data_dir") or (ROOT / "data"))
+    models_dir = Path(paths_cfg.get("models_dir") or (ROOT / "models"))
     return {
-        "items": data_path("processed", "items.parquet"),
-        "rated": data_path("processed", "rated.parquet"),
-        "synopsis": data_path("raw", "synopsis.parquet"),
-        "embeddings": data_path("processed", "embeddings.npy"),
-        "emb_ids": data_path("processed", "embeddings_ids.json"),
-        "structured": data_path("processed", "structured.parquet"),
-        "faiss": ROOT / "models" / "catalog.faiss",
-        "model": ROOT / "models" / "preference.joblib",
+        "items": data_dir / "processed" / "items.parquet",
+        "rated": data_dir / "processed" / "rated.parquet",
+        "synopsis": data_dir / "raw" / "synopsis.parquet",
+        "embeddings": data_dir / "processed" / "embeddings.npy",
+        "emb_ids": data_dir / "processed" / "embeddings_ids.json",
+        "structured": data_dir / "processed" / "structured.parquet",
+        "faiss": models_dir / "catalog.faiss",
+        "model": models_dir / "preference.joblib",
     }
