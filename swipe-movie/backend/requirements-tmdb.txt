@@ -1,0 +1,12 @@
+# TMDB — dépendance OPTIONNELLE (extra).
+#
+# La couche TMDB (services/external/tmdb.py) est désactivée par défaut et chargée
+# de façon PARESSEUSE par server.py (_tmdb()) : elle n'est importée QUE lorsque
+# TMDB est réellement activé (licensing.can_use_tmdb() / DATA_SOURCE=tmdb).
+#
+# Elle n'a besoin d'aucun paquet propriétaire : son seul besoin réseau est httpx,
+# déjà présent dans le cœur (utilisé aussi par FastAPI TestClient). Installer cet
+# « extra » revient donc à garantir la présence de httpx.
+#
+#   pip install -r requirements-tmdb.txt   # (+ définir TMDB_API_KEY pour activer)
+httpx>=0.27

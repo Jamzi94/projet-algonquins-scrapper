@@ -16,9 +16,21 @@ from auth import (create_access_token, get_current_user, hash_password,
                   verify_password)
 from database import client, db
 from seed_data import build_catalog
-from licensing import (catalog_source, get_provider_status, reco_via_bridge,
-                       tmdb_disabled_reason)
-from services.external import tmdb
+from licensing import (can_use_tmdb, catalog_source, get_provider_status,
+                       reco_via_bridge, tmdb_disabled_reason)
+
+
+def _tmdb():
+    """Import PARESSEUX du service TMDB.
+
+    Chargé uniquement quand TMDB est réellement actif (``can_use_tmdb()``), pour
+    ne pas tirer le module TMDB (ni sa dépendance ``httpx``) sur le chemin
+    licence-clean Wikidata. L'activation/désactivation de TMDB reste pilotée par
+    ``licensing.can_use_tmdb()`` (EXTERNAL_APIS_ENABLED / TMDB_API_KEY /
+    COMMERCIAL_MODE / TMDB_COMMERCIAL_LICENSE_CONFIRMED) et par DATA_SOURCE=tmdb.
+    """
+    from services.external import tmdb
+    return tmdb
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("swipenight")
@@ -1326,7 +1338,8 @@ async def search(q: str = "", type: str = "all", page: int = 1, language: str = 
     source = "seed"
 
     # anime is not reliably mapped on TMDB -> seeded catalog only
-    if tmdb.tmdb_enabled() and type != "anime":
+    if can_use_tmdb() and type != "anime":
+        tmdb = _tmdb()
         lang = language or None
         normalized = []
         if type in ("movie", "all"):
@@ -1353,9 +1366,9 @@ async def enrich_content(content_id: str, country: str = "", user=Depends(get_cu
     c = CONTENTS.get(content_id)
     if not c:
         raise HTTPException(404, "Content not found")
-    if not tmdb.tmdb_enabled():
+    if not can_use_tmdb():
         return {"content": c, "enriched": False, "provider_status": get_provider_status()}
-    fields = await tmdb.enrich_content_from_tmdb(c, country or None)
+    fields = await _tmdb().enrich_content_from_tmdb(c, country or None)
     if not fields:
         return {"content": c, "enriched": False, "provider_status": get_provider_status()}
     upd = {k: v for k, v in fields.items() if v not in (None, [], "")}
@@ -1370,9 +1383,10 @@ async def enrich_content(content_id: str, country: str = "", user=Depends(get_cu
 
 @api.post("/contents/refresh-trending")
 async def refresh_trending(user=Depends(get_current_user)):
-    if not tmdb.tmdb_enabled():
+    if not can_use_tmdb():
         return {"inserted_count": 0, "updated_count": 0, "skipped_count": 0,
                 "provider_status": get_provider_status()}
+    tmdb = _tmdb()
     inserted = updated = skipped = 0
     for kind in ("movie", "tv"):
         for it in (await tmdb.get_trending(kind, "week"))[:15]:
@@ -1393,11 +1407,11 @@ async def content_providers(content_id: str, country: str = "", user=Depends(get
         raise HTTPException(404, "Content not found")
     country = country or os.environ.get("DEFAULT_COUNTRY", "FR")
     cached = c.get("providers") or []
-    if tmdb.tmdb_enabled():
+    if can_use_tmdb():
         tmdb_id = (c.get("external_ids") or {}).get("tmdb")
         if tmdb_id:
             ctype = "movie" if c["type"] == "movie" else "tv"
-            fresh = await tmdb.get_watch_providers(ctype, tmdb_id, country)
+            fresh = await _tmdb().get_watch_providers(ctype, tmdb_id, country)
             if fresh:
                 await db.contents.update_one(
                     {"id": content_id}, {"$set": {"providers": fresh, "updated_at": now_iso()}})

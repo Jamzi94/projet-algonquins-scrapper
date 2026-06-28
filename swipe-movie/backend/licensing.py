@@ -42,31 +42,54 @@ def can_use_tmdb() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Toggles de SYNERGIE movie-reco (catalogue + reco via le pont)
+# Interrupteur UNIFIÉ de source de données + toggles dérivés
 # ---------------------------------------------------------------------------
-# Ces toggles pilotent la source du catalogue et le moteur de recommandation
-# utilisés par le backend SwipeNight, INDÉPENDAMMENT de TMDB (qui reste géré
-# par can_use_tmdb() ci-dessus et n'est pas une source de catalogue de base).
+# DATA_SOURCE est l'unique interrupteur de haut niveau qui choisit d'où vient le
+# catalogue et quel moteur de recommandation est utilisé :
+#   - "wikidata" (défaut) : catalogue Wikidata via le pont movie-reco, reco via le pont.
+#   - "seed"              : catalogue mock embarqué (seed_data), reco native SwipeNight.
+#   - "tmdb"              : base seed enrichie par TMDB (effectif seulement si can_use_tmdb()),
+#                           reco native. TMDB reste activable/désactivable via ses propres
+#                           variables (EXTERNAL_APIS_ENABLED / TMDB_API_KEY / COMMERCIAL_MODE /
+#                           TMDB_COMMERCIAL_LICENSE_CONFIRMED), cf. can_use_tmdb().
+# Les anciens toggles granulaires CATALOG_SOURCE / RECO_VIA_BRIDGE restent honorés
+# (rétro-compatibilité) et, s'ils sont définis explicitement, ils PRIMENT sur DATA_SOURCE.
+_DATA_SOURCES = {"wikidata", "seed", "tmdb"}
 _CATALOG_SOURCES = {"movreco", "seed"}
+
+
+def data_source() -> str:
+    """Interrupteur unifié : "wikidata" (défaut) | "seed" | "tmdb".
+
+    Accepte l'alias "movreco" pour "wikidata". Valeur absente/inconnue -> "wikidata".
+    """
+    value = os.environ.get("DATA_SOURCE", "wikidata").strip().lower()
+    if value == "movreco":
+        return "wikidata"
+    return value if value in _DATA_SOURCES else "wikidata"
 
 
 def catalog_source() -> str:
     """Source du catalogue de base : "movreco" (pont Wikidata) ou "seed".
 
-    Défaut "movreco" (synergie movie-reco). Toute valeur inconnue retombe sur
-    "movreco" pour rester cohérent avec le contrat d'environnement.
+    Dérivé de DATA_SOURCE ("wikidata" -> "movreco" ; "seed"/"tmdb" -> "seed"), sauf si
+    CATALOG_SOURCE est défini EXPLICITEMENT (rétro-compat) auquel cas il prime.
     """
-    value = os.environ.get("CATALOG_SOURCE", "movreco").strip().lower()
-    return value if value in _CATALOG_SOURCES else "movreco"
+    raw = os.environ.get("CATALOG_SOURCE")
+    if raw is not None and raw.strip().lower() in _CATALOG_SOURCES:
+        return raw.strip().lower()
+    return "movreco" if data_source() == "wikidata" else "seed"
 
 
 def reco_via_bridge() -> bool:
-    """Vrai si les endpoints de reco doivent déléguer au pont movreco.
+    """Vrai si les endpoints de reco délèguent au pont movreco.
 
-    Défaut activé ("1"). Mettre RECO_VIA_BRIDGE=0 pour utiliser le recommender
-    natif de SwipeNight.
+    Dérivé de DATA_SOURCE ("wikidata" -> True ; "seed"/"tmdb" -> False), sauf si
+    RECO_VIA_BRIDGE est défini EXPLICITEMENT (rétro-compat) auquel cas il prime.
     """
-    return _flag("RECO_VIA_BRIDGE", "1")
+    if os.environ.get("RECO_VIA_BRIDGE") is not None:
+        return _flag("RECO_VIA_BRIDGE", "1")
+    return data_source() == "wikidata"
 
 
 def tmdb_disabled_reason() -> str | None:
@@ -99,7 +122,8 @@ def get_provider_status() -> dict:
         "reason": tmdb_disabled_reason(),
         "default_country": os.environ.get("DEFAULT_COUNTRY", "FR"),
         "default_language": os.environ.get("TMDB_DEFAULT_LANGUAGE", "fr-FR"),
-        # Toggles de synergie movie-reco (source de catalogue + moteur de reco).
+        # Interrupteur unifié + toggles de synergie movie-reco dérivés.
+        "data_source": data_source(),
         "catalog_source": catalog_source(),
         "reco_via_bridge": reco_via_bridge(),
     }

@@ -74,8 +74,14 @@ valeurs par défaut suffisent :
 | `MONGO_URL`       | *(commenté)*   | Absent -> Mongo en mémoire ; une URI -> vrai Mongo.         |
 | `DB_NAME`         | `swipenight`   | Nom de la base.                                             |
 | `JWT_SECRET`      | *(à définir)*  | Secret de signature des JWT (auth.py / PyJWT).              |
-| `CATALOG_SOURCE`  | `movreco`      | `movreco` = catalogue movie-reco ; `seed` = seed_data.      |
-| `RECO_VIA_BRIDGE` | `1`            | `1` = reco via le pont movreco ; `0` = recommander natif.   |
+| `DATA_SOURCE`     | `wikidata`     | **Interrupteur unifié** : `wikidata` (movie-reco) \| `seed` \| `tmdb`. |
+| `CATALOG_SOURCE`  | *(dérivé)*     | Avancé : `movreco`\|`seed`. Prime sur `DATA_SOURCE` si défini. |
+| `RECO_VIA_BRIDGE` | *(dérivé)*     | Avancé : `1`\|`0`. Prime sur `DATA_SOURCE` si défini.        |
+
+`DATA_SOURCE` est le réglage recommandé : `wikidata` -> catalogue movie-reco + reco
+via le pont ; `seed` -> catalogue démo + reco native ; `tmdb` -> base seed enrichie
+par TMDB (si TMDB activé) + reco native. Les deux variables avancées restent là pour
+un contrôle fin et la rétro-compatibilité.
 
 Sans `.env` du tout, le backend démarre quand même en mode sandbox (mémoire +
 movreco) ; pensez tout de même à définir un `JWT_SECRET` sérieux.
@@ -138,6 +144,13 @@ et reste **toggleable** via `licensing.can_use_tmdb()`. Variables concernées :
 `EXTERNAL_APIS_ENABLED`, `TMDB_API_KEY`, `COMMERCIAL_MODE`,
 `TMDB_COMMERCIAL_LICENSE_CONFIRMED`. Sans clé ou avec `EXTERNAL_APIS_ENABLED=false`,
 le backend fonctionne entièrement sur movie-reco — aucun appel externe requis.
+
+**Isolation (import paresseux).** Le module `services/external/tmdb.py` (et sa
+dépendance réseau `httpx`) n'est chargé que lorsque TMDB est réellement actif —
+`server.py` l'importe via `_tmdb()` à la demande. Sur le chemin licence-clean
+Wikidata (défaut), TMDB n'est jamais importé. C'est une dépendance **optionnelle**
+(voir `requirements-tmdb.txt`) ; pour activer TMDB : `DATA_SOURCE=tmdb` + une
+`TMDB_API_KEY` valide (et `TMDB_COMMERCIAL_LICENSE_CONFIRMED=true` en mode commercial).
 
 ---
 
