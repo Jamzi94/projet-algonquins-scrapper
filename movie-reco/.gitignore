@@ -4,6 +4,7 @@ __pycache__/
 .env
 data/raw/*
 data/processed/*
+data/cache/*
 models/*.faiss
 models/*.joblib
 models/*.npy
