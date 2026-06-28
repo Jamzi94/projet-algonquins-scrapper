@@ -45,3 +45,9 @@ wikidata:
 llm:
   enabled: false             # true pour activer le re-ranking et les explications LLM
   model: claude-sonnet-4-6
+
+api:
+  host: 127.0.0.1            # adresse d'ecoute de l'API FastAPI (movreco serve)
+  port: 8000                 # port d'ecoute
+  default_mode: mvp          # mode par defaut de POST /recommend (stateless, multi-utilisateur)
+  default_n: 10              # taille du top-N par defaut

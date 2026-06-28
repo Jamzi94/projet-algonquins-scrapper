@@ -47,6 +47,58 @@ après l'ingestion (l'appariement titre/année est imparfait).
   classement sur les plus récents). Réglable via `evaluate.ndcg_k` et
   `evaluate.holdout_frac` ; affiché « indisponible » si trop peu de films notés.
 
+## API
+
+Le moteur est exposable en service HTTP via **FastAPI**. Idée maîtresse : `POST /recommend`
+rend le moteur *stateless* et multi-utilisateur — un client poste **ses** notes et reçoit
+des recommandations sans réentraîner (le vecteur de goût est calculé à la volée, mode `mvp`).
+`GET /recommend` utilise les notes persistées du propriétaire (`rated.parquet`, mode `hybrid`
+si un modèle est disponible). Les artefacts sont chargés **une seule fois au démarrage**.
+
+```bash
+pip install -e ".[api]"     # installe fastapi + uvicorn
+movreco serve               # lance l'API sur http://127.0.0.1:8000
+movreco serve --host 0.0.0.0 --port 8080 --reload   # options
+```
+
+Documentation interactive auto-générée (Swagger) : http://127.0.0.1:8000/docs
+
+### Endpoints
+
+- `GET /health` — état du service et artefacts chargés.
+- `GET /movies?q=<texte>&limit=20` — recherche un film par sous-chaîne du titre
+  (insensible à la casse) ; sans `q`, renvoie les premiers items.
+- `GET /movies/{qid}` — fiche détaillée d'un film (404 si inconnu).
+- `GET /movies/{qid}/similar?n=10` — films voisins par similarité cosinus des embeddings.
+- `POST /recommend` — recommandations à partir de notes fournies dans le corps (stateless).
+  Mode `mvp` par défaut ; `hybrid` se replie sur `mvp` si aucun modèle n'est chargé
+  (le champ `mode` de la réponse reflète le mode réellement utilisé).
+- `GET /recommend?mode=hybrid&n=10` — recommandations à partir des notes persistées du
+  propriétaire (`rated.parquet`).
+
+Exemple `POST /recommend` :
+```bash
+curl -X POST http://127.0.0.1:8000/recommend \
+  -H "Content-Type: application/json" \
+  -d '{
+        "ratings": [
+          {"qid": "Q172241", "rating": 9.0},
+          {"qid": "Q44578",  "rating": 4.0}
+        ],
+        "mode": "mvp",
+        "n": 10,
+        "exclude": []
+      }'
+```
+
+Exemple `GET /recommend` (notes du propriétaire) :
+```bash
+curl "http://127.0.0.1:8000/recommend?mode=hybrid&n=10"
+```
+
+Si un artefact requis manque, l'app démarre quand même et l'endpoint concerné répond
+`503` avec un message clair (en français).
+
 ## Tests
 ```bash
 pytest -q

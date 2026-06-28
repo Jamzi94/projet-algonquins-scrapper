@@ -334,6 +334,19 @@ def recommend(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Adresse d'écoute"),
+    port: int = typer.Option(8000, help="Port d'écoute"),
+    reload: bool = typer.Option(False, "--reload", help="Rechargement auto (développement)"),
+):
+    """Lance l'API FastAPI (recommandations en service)."""
+    import uvicorn
+
+    rprint(f"[green]API movreco sur[/green] http://{host}:{port}  (docs : http://{host}:{port}/docs)")
+    uvicorn.run("movreco.api.app:app", host=host, port=port, reload=reload)
+
+
+@app.command()
 def evaluate():
     """Affiche la MAE leave-one-out du modèle de préférence."""
     from movreco.features.combine import feature_matrix

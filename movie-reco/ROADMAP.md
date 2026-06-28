@@ -32,7 +32,7 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 - [x] Persister l'index FAISS (`save_index`/`load_index`) au lieu de le reconstruire à chaque reco.
 - [ ] Boucle d'apprentissage actif : proposer en priorité des films à fort gain d'information.
 - [ ] Sérendipité contrôlée : réserver une fraction du top-N à des items pertinents mais éloignés.
-- [ ] Exposer une petite API (FastAPI) ou une UI si besoin produit.
+- [x] Exposer une petite API (FastAPI) ou une UI si besoin produit.
 
 ## Phase 4 — Option LLM
 - [ ] Activer `llm.enabled` dans `config.yaml`, renseigner `ANTHROPIC_API_KEY` dans `.env`.

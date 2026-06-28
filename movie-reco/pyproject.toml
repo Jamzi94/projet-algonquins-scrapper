@@ -28,9 +28,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "httpx>=0.27"]
 # Couche LLM optionnelle (re-ranking/explications) : pip install -e ".[llm]"
 llm = ["anthropic>=0.39"]
+# API FastAPI (moteur expose en service) : pip install -e ".[api]"
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
 
 [project.scripts]
 movreco = "movreco.cli:app"
