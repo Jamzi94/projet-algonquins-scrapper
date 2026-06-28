@@ -1,0 +1,44 @@
+{
+  "summary": "First-pass full-stack testing for SwipeNight. Backend: all 30 pytest tests pass (100%) — auth (login, register, /me, dup-email), onboarding (preferences + calibration 20), recommendations (home hero + rails, 5 context variants, /reasons), browse (filter+search+sort), content detail (match_score, reasons, reviews, community_rating, user_state), events (like persists state), watchlist add/get/remove, reviews (public visible to others, private hidden), rooms full flow (create→start→candidates→superlike vote→winner→relaunch round 2), join MOVIE1, privacy defaults/update, dev daily job. Frontend (mobile viewport 390x844): seeded alex_noir → home feed renders hero+rails with match scores; content detail → rate & review sheet works; navigation between tabs OK; Rooms tab shows Friday Movie Night with MOVIE1 code; Join room screen joins demo room successfully showing lobby with members + code + threshold/quorum + Start swiping button; new-user register → onboarding (preferences with platform/format/genre chips) → calibration deck (deck-like + skip) → home tabs; browse search by 'the' returns filtered grid. Solo room creation screen renders correctly. No critical bugs, no red screen errors. Minor non-blocking issues: Fraunces font files return HTML instead of OTF (decode warnings), React 19 element.ref deprecation warning, passlib trapped bcrypt __about__ AttributeError in backend log.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "backend startup", "issue": "passlib emits 'AttributeError: module bcrypt has no attribute __about__' (trapped) due to passlib<=1.7.4 vs bcrypt>=4 version mismatch. Hashing still works. Consider pinning bcrypt<4 or migrating to passlib >=1.7.5/argon2 to clean logs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "global", "issues": ["Custom Fraunces font files (Fraunces-Regular/Medium/SemiBold.ttf) fail to load — endpoint returns HTML, causing 'OTS parsing error: invalid sfntVersion' warnings. App falls back to system fonts so visuals are acceptable, but the brand font does not render. Likely an Expo Router web static-asset path issue (the URL contains ?unstable_path=./assets/fonts/...)."]}
+    ],
+    "react_native_issues": [
+      {"component": "React 19 ref deprecation", "issue": "Console warning 'Accessing element.ref was removed in React 19. ref is now a regular prop'. Coming from a library (likely react-native-reanimated or expo-router). Non-blocking but should be tracked for SDK upgrade."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_swipenight_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Fix Fraunces font asset serving on web so the cinematic typography renders; verify font URL works without ?unstable_path= prefix or pre-bundle the OTF.",
+    "(Optional) Resolve passlib/bcrypt log noise by pinning bcrypt<4 in requirements.txt.",
+    "No business-logic fixes required — all core flows green."
+  ],
+  "critical_code_review_comments": [
+    "server.py is large (~1100 lines). Consider splitting into routers (auth, contents, rooms, reviews, events) for maintainability.",
+    "DELETE /api/watchlist/{id} returns 200 even when no doc exists — acceptable, but could 404 for clarity.",
+    "Room start does not check membership beyond owner; non-owner gets 403 (good). Rooms have no leave endpoint — minor gap.",
+    "WebSocket /api/ws/rooms/{id} has no auth handshake; in production should validate JWT.",
+    "Reviews list endpoint runs an N+1 user lookup (one db.users.find_one per review). Fine at MVP scale (<=50 reviews) but consider $lookup or in-memory cache later."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_swipenight_api.py (new — 30 pytest tests across all endpoints)"
+  ],
+  "success_rate": {"backend": "100% (30/30)", "frontend": "100% (all critical flows verified)"},
+  "seed_data_creation": "Tests register TEST_<uuid>@swipenight.app accounts and a TEST_solo_room; reviews prefixed with 'TEST'. No cleanup performed (acceptable for non-prod test DB).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend uses EXPO_PUBLIC_BACKEND_URL (frontend/.env), not EXPO_BACKEND_URL. Seeded users login with password123 and are pre-onboarded (skip prefs/calibration). New users must select >=1 platform+format+genre then complete or skip calibration before home. Demo room code: MOVIE1 (alex_noir owner, Sam & Rae members). For solo winner determinism create room with quorum=1, threshold_percent=50. WebSocket path is /api/ws/rooms/{id}. The full room flow (create→start→candidates→vote→result with winner→relaunch) is covered in test_full_room_flow.",
+  "rca_of_issue": "N/A — no defects discovered this iteration."
+}
