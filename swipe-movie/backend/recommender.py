@@ -173,10 +173,14 @@ def build_user_vector(interactions, content_vectors, half_life=HALF_LIFE_DAYS):
             for k, v in cv.items():
                 neg[k] = neg.get(k, 0.0) + v * wgt
             neg_w += wgt
+    # On construit le vecteur de goût indépendamment des deux branches :
+    # la partie positive et la partie négative sont chacune appliquées si
+    # elles existent. Ainsi, un utilisateur qui n'a QUE des dislikes
+    # (pos_w == 0) obtient bien un vecteur négatif au lieu d'un vecteur vide.
     uv = {}
     if pos_w > 0:
         for k, v in pos.items():
-            uv[k] = v / pos_w
+            uv[k] = uv.get(k, 0.0) + (v / pos_w)
     if neg_w > 0:
         for k, v in neg.items():
             uv[k] = uv.get(k, 0.0) - (v / neg_w)
@@ -232,7 +236,11 @@ def score_content(content, content_vector, user_vector, ctx):
     novelty = max(0.0, min(1.0, 1 - (datetime.now().year - year) / 50))
 
     popularity = max(0.0, min(1.0, (content.get("popularity", 0) or 0) / 100))
-    exploration = random.random()
+    # Exploration déterministe : on dérive un bruit reproductible à partir de
+    # l'id du contenu (Random seedé par l'id) au lieu de random.random() global,
+    # afin de garantir des recommandations stables/reproductibles tout en
+    # conservant l'esprit du signal (un « jitter » propre à chaque contenu).
+    exploration = random.Random(str(cid)).random()
 
     score = (
         SCORE_WEIGHTS["taste"] * taste
@@ -277,6 +285,32 @@ def score_content(content, content_vector, user_vector, ctx):
 # ---------------------------------------------------------------------------
 # Candidate generation
 # ---------------------------------------------------------------------------
+# Correspondance pluriel/singulier entre les formats de filtre et le type de
+# contenu. On gère les variantes courantes pour rester robuste et rétro-compatible.
+_FORMAT_ALIASES = {
+    "movies": "movie",
+    "movie": "movie",
+    "films": "movie",
+    "film": "movie",
+    "series": "series",
+    "serie": "series",
+    "tv": "series",
+    "shows": "series",
+    "show": "series",
+    "anime": "anime",
+    "animes": "anime",
+}
+
+
+def _normalize_format(value):
+    """Normalise un format (pluriel) ou un type de contenu (singulier) vers une
+    clé canonique singulière. Renvoie la valeur minuscule inchangée si inconnue."""
+    if not value:
+        return ""
+    key = str(value).strip().lower()
+    return _FORMAT_ALIASES.get(key, key)
+
+
 def generate_candidates(contents, ctx, limit=2000):
     """
     For the V1 catalog (<2000 titles) we use the whole catalog as the candidate
@@ -285,14 +319,20 @@ def generate_candidates(contents, ctx, limit=2000):
     15% new releases, 10% popularity, 10% watchlist, 10% exploration) plugs in.
     """
     excluded = ctx.get("excluded") or set()
-    formats = set(ctx.get("formats") or [])
+    # Les formats de préférence/filtre sont stockés au pluriel ("movies",
+    # "series", "anime") alors que le type d'un contenu est au singulier
+    # ("movie", "series", "anime"). On normalise donc chaque format vers le
+    # type de contenu correspondant pour que le filtre soit réellement
+    # comparable (sinon "movies" != "movie" exclurait tout le catalogue).
+    formats = {_normalize_format(f) for f in (ctx.get("formats") or []) if f}
     out = []
     for c in contents:
         if c["id"] in excluded:
             continue
-        if formats and c["type"] not in formats:
-            # still allow but they will rank lower; keep for diversity
-            pass
+        # Filtre formats appliqué pour de vrai : si une liste de formats est
+        # fournie, on ne garde que les contenus dont le type correspond.
+        if formats and _normalize_format(c.get("type")) not in formats:
+            continue
         out.append(c)
         if len(out) >= limit:
             break

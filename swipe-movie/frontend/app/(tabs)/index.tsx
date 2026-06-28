@@ -26,11 +26,17 @@ export default function Home() {
   const [feed, setFeed] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const d = await api.get("/recommendations/home");
       setFeed(d);
+      // Succès : on efface tout état d'erreur précédent
+      setError(false);
+    } catch {
+      // Échec réseau/serveur : état d'erreur distinct du « vide » légitime
+      setError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -45,7 +51,31 @@ export default function Home() {
 
   const open = (id: string) => router.push(`/content/${id}` as any);
 
+  const retry = () => {
+    setLoading(true);
+    load();
+  };
+
   if (loading) return <Loader label="Curating your night…" />;
+
+  // État d'erreur distinct du « vide » légitime : message + possibilité de réessayer
+  if (error) {
+    return (
+      <View style={[styles.root, styles.center, { paddingTop: insets.top }]}>
+        <View style={styles.errorBox}>
+          <Ionicons name="cloud-offline-outline" size={40} color={C.error} />
+          <Text style={styles.errorTitle}>Impossible de charger vos recommandations</Text>
+          <Text style={styles.errorMessage}>
+            Vérifiez votre connexion, puis réessayez.
+          </Text>
+          <Pressable testID="home-retry" onPress={retry} style={styles.retryBtn}>
+            <Ionicons name="refresh" size={16} color={C.onBrand} />
+            <Text style={styles.retryText}>Réessayer</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   const hero = feed?.hero;
 
@@ -117,6 +147,21 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.surface },
+  center: { justifyContent: "center", alignItems: "center" },
+  errorBox: { alignItems: "center", paddingHorizontal: SP.xl, gap: SP.md },
+  errorTitle: { fontFamily: F.display, fontSize: 20, color: C.onSurface, textAlign: "center", marginTop: SP.sm },
+  errorMessage: { fontFamily: F.body, fontSize: 14, color: C.onSurface2, textAlign: "center" },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SP.sm,
+    backgroundColor: C.brand,
+    paddingHorizontal: SP.lg,
+    paddingVertical: SP.md,
+    borderRadius: RAD.pill,
+    marginTop: SP.sm,
+  },
+  retryText: { fontFamily: F.medium, fontSize: 14, color: C.onBrand },
   hero: { height: 460, justifyContent: "space-between" },
   heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: SP.xl },
   brand: { fontFamily: F.display, fontSize: 22, color: C.onSurface },

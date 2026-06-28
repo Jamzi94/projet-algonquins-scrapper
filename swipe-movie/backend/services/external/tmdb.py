@@ -146,6 +146,33 @@ async def get_trending(content_type="all", time_window="week"):
 # --------------------------------------------------------------------------
 # Normalization into the SwipeNight content schema
 # --------------------------------------------------------------------------
+# Champs « note/valeur » pour lesquels une valeur TMDB vide ou nulle (0) ne doit
+# PAS écraser la valeur seed existante lors du merge d'enrichissement.
+# Un titre non noté côté TMDB renvoie 0, ce qui n'est pas une vraie note.
+_NUMERIC_RATING_FIELDS = (
+    "external_rating",
+    "vote_average",
+    "vote_count",
+    "quality_score",
+)
+
+
+def _merge_fields_from_normalized(normalized):
+    """
+    Prépare le dict de champs à fusionner sur le contenu seed à partir d'un doc
+    normalisé TMDB. On ne conserve que les champs réellement renseignés : les
+    notes/valeurs TMDB vides ou à 0 sont retirées pour ne pas écraser une valeur
+    seed existante (le caller ne filtre que None/[]/"" et laisserait passer 0).
+    """
+    fields = dict(normalized or {})
+    for key in _NUMERIC_RATING_FIELDS:
+        # Une note/valeur absente ou nulle n'est pas une donnée réelle : on la
+        # retire pour préserver l'éventuelle valeur seed lors du merge.
+        if not fields.get(key):
+            fields.pop(key, None)
+    return fields
+
+
 def _trailer(videos):
     for v in (videos or {}).get("results", []):
         if v.get("site") == "YouTube" and v.get("type") in ("Trailer", "Teaser"):
@@ -274,7 +301,8 @@ async def enrich_content_from_tmdb(content, country=None):
         credits = await get_movie_credits(tmdb_id)
         videos = await get_movie_videos(tmdb_id)
         providers = await get_watch_providers("movie", tmdb_id, country)
-        return normalize_tmdb_movie(details, credits, videos, providers, country)
+        return _merge_fields_from_normalized(
+            normalize_tmdb_movie(details, credits, videos, providers, country))
     else:
         details = await get_tv_details(tmdb_id)
         if not details:
@@ -282,4 +310,5 @@ async def enrich_content_from_tmdb(content, country=None):
         credits = await get_tv_credits(tmdb_id)
         videos = await get_tv_videos(tmdb_id)
         providers = await get_watch_providers("tv", tmdb_id, country)
-        return normalize_tmdb_tv(details, credits, videos, providers, country)
+        return _merge_fields_from_normalized(
+            normalize_tmdb_tv(details, credits, videos, providers, country))

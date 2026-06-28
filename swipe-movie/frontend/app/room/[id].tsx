@@ -20,7 +20,12 @@ export default function RoomScreen() {
   const [result, setResult] = useState<any>(null);
   const [view, setView] = useState<"lobby" | "vote" | "result">("lobby");
   const [me, setMe] = useState<any>(null);
+  // Statut de la connexion temps réel, exposé à l'utilisateur.
+  const [wsStatus, setWsStatus] = useState<"connecting" | "online" | "offline">("connecting");
   const ws = useRef<WebSocket | null>(null);
+  // Timer de reconnexion et drapeau de démontage pour éviter les fuites/reconnexions fantômes.
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unmounted = useRef(false);
 
   const loadRoom = useCallback(async () => {
     const r = await api.get(`/rooms/${id}`);
@@ -42,16 +47,73 @@ export default function RoomScreen() {
   }, [id]);
 
   useEffect(() => {
-    api.get("/auth/me").then(setMe).catch(() => {});
-    loadRoom();
-    try {
-      ws.current = new WebSocket(wsUrl(id as string));
-      ws.current.onmessage = () => {
+    unmounted.current = false;
+
+    // Ouvre le WebSocket et gère erreurs/fermeture avec une reconnexion simple.
+    const connect = () => {
+      if (unmounted.current) return;
+      setWsStatus("connecting");
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(wsUrl(id as string));
+      } catch {
+        // Échec immédiat de création : on planifie une reconnexion.
+        scheduleReconnect();
+        return;
+      }
+      ws.current = socket;
+
+      socket.onopen = () => {
+        if (unmounted.current) return;
+        setWsStatus("online");
+      };
+      socket.onmessage = () => {
         loadRoom();
         loadResult();
       };
-    } catch {}
-    return () => ws.current?.close();
+      socket.onerror = () => {
+        // La fermeture (onclose) suit généralement l'erreur : on y gère la reconnexion.
+        if (unmounted.current) return;
+        setWsStatus("offline");
+      };
+      socket.onclose = () => {
+        if (unmounted.current) return;
+        setWsStatus("offline");
+        scheduleReconnect();
+      };
+    };
+
+    // Planifie une tentative de reconnexion (sans s'empiler).
+    const scheduleReconnect = () => {
+      if (unmounted.current || reconnectTimer.current) return;
+      reconnectTimer.current = setTimeout(() => {
+        reconnectTimer.current = null;
+        connect();
+      }, 3000);
+    };
+
+    api.get("/auth/me").then(setMe).catch(() => {});
+    loadRoom();
+    connect();
+
+    return () => {
+      // Nettoyage au démontage : on évite toute reconnexion et on ferme proprement.
+      unmounted.current = true;
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
+      }
+      const s = ws.current;
+      if (s) {
+        // On neutralise les handlers pour ne pas déclencher de reconnexion à la fermeture.
+        s.onopen = null;
+        s.onmessage = null;
+        s.onerror = null;
+        s.onclose = null;
+        s.close();
+      }
+      ws.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -92,6 +154,7 @@ export default function RoomScreen() {
     return (
       <View style={[styles.root, { paddingTop: insets.top + SP.md }]}>
         <Header title={room.name} onBack={() => router.back()} />
+        <ConnectionStatus status={wsStatus} />
         <ScrollView contentContainerStyle={{ padding: SP.lg }}>
           <View style={styles.codeBox}>
             <Text style={styles.codeLabel}>INVITE CODE</Text>
@@ -129,6 +192,7 @@ export default function RoomScreen() {
     return (
       <View style={[styles.root, { paddingTop: insets.top + SP.md }]}>
         <Header title="Result" onBack={() => router.back()} />
+        <ConnectionStatus status={wsStatus} />
         <ScrollView contentContainerStyle={{ padding: SP.lg, paddingBottom: 120 }}>
           {w ? (
             <View testID="room-winner">
@@ -189,6 +253,7 @@ export default function RoomScreen() {
           <Ionicons name="trophy-outline" size={24} color={C.warning} />
         </Pressable>
       </View>
+      <ConnectionStatus status={wsStatus} />
 
       <View style={{ flex: 1, paddingHorizontal: SP.xl }}>
         <SwipeDeck
@@ -206,6 +271,28 @@ export default function RoomScreen() {
           )}
         />
       </View>
+    </View>
+  );
+}
+
+// Bandeau de statut de la connexion temps réel.
+// Masqué quand tout va bien ("online") pour ne pas encombrer l'interface.
+function ConnectionStatus({ status }: { status: "connecting" | "online" | "offline" }) {
+  if (status === "online") return null;
+  const offline = status === "offline";
+  return (
+    <View
+      testID="ws-status"
+      style={[styles.wsStatus, { backgroundColor: offline ? C.brandTint : C.surface2 }]}
+    >
+      <Ionicons
+        name={offline ? "cloud-offline-outline" : "sync-outline"}
+        size={14}
+        color={offline ? C.onBrandTint : C.onSurface2}
+      />
+      <Text style={[styles.wsStatusText, { color: offline ? C.onBrandTint : C.onSurface2 }]}>
+        {offline ? "Connexion perdue — reconnexion…" : "Connexion en cours…"}
+      </Text>
     </View>
   );
 }
@@ -232,6 +319,8 @@ function Summary({ label, value }: any) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.surface },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: SP.lg, marginBottom: SP.sm },
+  wsStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SP.xs, marginHorizontal: SP.lg, marginBottom: SP.sm, paddingVertical: SP.xs, paddingHorizontal: SP.md, borderRadius: RAD.pill },
+  wsStatusText: { fontFamily: F.medium, fontSize: 12 },
   headerTitle: { fontFamily: F.display, fontSize: 20, color: C.onSurface, flex: 1, textAlign: "center" },
   codeBox: { backgroundColor: C.surface2, borderRadius: RAD.lg, padding: SP.xl, alignItems: "center", borderWidth: 1, borderColor: C.border },
   codeLabel: { fontFamily: F.medium, fontSize: 12, color: C.zinc, letterSpacing: 1 },

@@ -3,7 +3,7 @@ import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -178,11 +178,33 @@ export function SwipeDeck({
   const [index, setIndex] = useState(0);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
+  // Indique si le composant est toujours monté : empêche tout callback
+  // d'animation (runOnJS) d'agir après le démontage.
+  const mounted = useRef(true);
+
+  // Bug #2 : réinitialise l'index et la position quand la prop `cards` change
+  // d'identité, sinon un index périmé affiche les mauvaises cartes.
+  useEffect(() => {
+    setIndex(0);
+    x.value = 0;
+    y.value = 0;
+  }, [cards]);
+
+  // Nettoyage au démontage : invalide le drapeau pour que `advance` n'exécute
+  // plus rien si une animation se termine après le démontage.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const current = cards[index];
   const next = cards[index + 1];
 
   const advance = (dir: Dir) => {
+    // Bug #1 : ne rien faire si le composant a été démonté entre-temps.
+    if (!mounted.current) return;
     const card = cards[index];
     if (card) onSwipe(card, dir);
     setIndex((i) => i + 1);
@@ -194,11 +216,17 @@ export function SwipeDeck({
     Haptics.impactAsync(
       dir === "up" ? Haptics.ImpactFeedbackStyle.Heavy : Haptics.ImpactFeedbackStyle.Medium
     ).catch(() => {});
-    if (dir === "right") x.value = withTiming(SCREEN_W * 1.4, { duration: 250 });
-    else if (dir === "left") x.value = withTiming(-SCREEN_W * 1.4, { duration: 250 });
-    else if (dir === "up") y.value = withTiming(-SCREEN_H, { duration: 250 });
-    else if (dir === "down") y.value = withTiming(SCREEN_H, { duration: 250 });
-    setTimeout(() => advance(dir), 200);
+    // Bug #1 : on synchronise l'avancement sur la fin réelle de l'animation
+    // (callback de withTiming) au lieu d'un setTimeout fixe (200ms) décorrélé
+    // de la durée d'animation et non nettoyé au démontage.
+    const done = (finished?: boolean) => {
+      "worklet";
+      if (finished) runOnJS(advance)(dir);
+    };
+    if (dir === "right") x.value = withTiming(SCREEN_W * 1.4, { duration: 250 }, done);
+    else if (dir === "left") x.value = withTiming(-SCREEN_W * 1.4, { duration: 250 }, done);
+    else if (dir === "up") y.value = withTiming(-SCREEN_H, { duration: 250 }, done);
+    else if (dir === "down") y.value = withTiming(SCREEN_H, { duration: 250 }, done);
   };
 
   const pan = Gesture.Pan()

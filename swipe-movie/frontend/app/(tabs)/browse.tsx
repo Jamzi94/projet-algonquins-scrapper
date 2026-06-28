@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -32,24 +32,44 @@ export default function Browse() {
   const [sort, setSort] = useState("recommended");
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  // Jeton de séquence : on numérote chaque requête pour ignorer les réponses
+  // périmées (race condition) lorsqu'une recherche plus récente est déjà partie.
+  const reqSeq = useRef(0);
 
   const load = async () => {
+    // On capture le numéro de cette requête : seule la plus récente pourra
+    // committer son résultat dans le state.
+    const seq = ++reqSeq.current;
     setLoading(true);
+    setError("");
     try {
+      let items: any[];
       if (q.trim()) {
         const stype = ["movie", "series", "anime"].includes(type) ? type : "all";
         const params = new URLSearchParams({ q, type: stype });
         const d = await api.get(`/search?${params.toString()}`);
-        let items = d.results;
+        items = d.results;
         if (genre) items = items.filter((c: any) => (c.genres || []).map((g: string) => g.toLowerCase()).includes(genre.toLowerCase()));
-        setResults(items);
       } else {
         const params = new URLSearchParams({ q, type, genre, sort });
         const d = await api.get(`/contents?${params.toString()}`);
-        setResults(d.results);
+        items = d.results;
       }
+      // Réponse périmée : une recherche plus récente a été lancée entre-temps,
+      // on ignore ce résultat pour ne pas écraser un affichage plus à jour.
+      if (seq !== reqSeq.current) return;
+      setResults(items);
+    } catch (e: any) {
+      // Idem côté erreur : on n'affiche l'erreur que si c'est toujours la
+      // requête courante, sinon on laisse la requête la plus récente décider.
+      if (seq !== reqSeq.current) return;
+      setError((e && e.message) || "Une erreur est survenue lors du chargement.");
+      setResults([]);
     } finally {
-      setLoading(false);
+      // On ne range le loader que pour la requête courante afin de ne pas
+      // masquer le chargement d'une recherche plus récente encore en cours.
+      if (seq === reqSeq.current) setLoading(false);
     }
   };
 
@@ -101,6 +121,8 @@ export default function Browse() {
 
       {loading ? (
         <Loader />
+      ) : error ? (
+        <EmptyState icon="cloud-offline-outline" title="Chargement impossible" subtitle={error} action="Réessayer" onAction={load} testID="browse-error" />
       ) : results.length === 0 ? (
         <EmptyState icon="search-outline" title="No results" subtitle="Try clearing your filters." action="Clear filters" onAction={() => { setQ(""); setType(""); setGenre(""); }} testID="browse-empty" />
       ) : (
