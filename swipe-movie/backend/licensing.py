@@ -41,6 +41,34 @@ def can_use_tmdb() -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Toggles de SYNERGIE movie-reco (catalogue + reco via le pont)
+# ---------------------------------------------------------------------------
+# Ces toggles pilotent la source du catalogue et le moteur de recommandation
+# utilisés par le backend SwipeNight, INDÉPENDAMMENT de TMDB (qui reste géré
+# par can_use_tmdb() ci-dessus et n'est pas une source de catalogue de base).
+_CATALOG_SOURCES = {"movreco", "seed"}
+
+
+def catalog_source() -> str:
+    """Source du catalogue de base : "movreco" (pont Wikidata) ou "seed".
+
+    Défaut "movreco" (synergie movie-reco). Toute valeur inconnue retombe sur
+    "movreco" pour rester cohérent avec le contrat d'environnement.
+    """
+    value = os.environ.get("CATALOG_SOURCE", "movreco").strip().lower()
+    return value if value in _CATALOG_SOURCES else "movreco"
+
+
+def reco_via_bridge() -> bool:
+    """Vrai si les endpoints de reco doivent déléguer au pont movreco.
+
+    Défaut activé ("1"). Mettre RECO_VIA_BRIDGE=0 pour utiliser le recommender
+    natif de SwipeNight.
+    """
+    return _flag("RECO_VIA_BRIDGE", "1")
+
+
 def tmdb_disabled_reason() -> str | None:
     """Human-readable reason TMDB is disabled, or None if it's usable."""
     if not external_apis_enabled():
@@ -54,7 +82,12 @@ def tmdb_disabled_reason() -> str | None:
 
 
 def get_provider_status() -> dict:
-    """Status payload describing external-data availability and why."""
+    """Status payload describing external-data availability and why.
+
+    Expose aussi les toggles de SYNERGIE movie-reco (``catalog_source`` et
+    ``reco_via_bridge``) en plus de l'état TMDB, afin que l'UI/les ops voient
+    d'où viennent le catalogue et les recommandations.
+    """
     usable = can_use_tmdb()
     return {
         "tmdb_enabled": usable,
@@ -66,4 +99,7 @@ def get_provider_status() -> dict:
         "reason": tmdb_disabled_reason(),
         "default_country": os.environ.get("DEFAULT_COUNTRY", "FR"),
         "default_language": os.environ.get("TMDB_DEFAULT_LANGUAGE", "fr-FR"),
+        # Toggles de synergie movie-reco (source de catalogue + moteur de reco).
+        "catalog_source": catalog_source(),
+        "reco_via_bridge": reco_via_bridge(),
     }

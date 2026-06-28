@@ -16,7 +16,8 @@ from auth import (create_access_token, get_current_user, hash_password,
                   verify_password)
 from database import client, db
 from seed_data import build_catalog
-from licensing import get_provider_status, tmdb_disabled_reason
+from licensing import (catalog_source, get_provider_status, reco_via_bridge,
+                       tmdb_disabled_reason)
 from services.external import tmdb
 
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +30,99 @@ api = APIRouter(prefix="/api")
 CONTENTS: dict = {}          # id -> content
 CONTENT_VECTORS: dict = {}   # id -> vector
 
+# Moteur de SYNERGIE movie-reco (pont). Chargé paresseusement au démarrage si
+# CATALOG_SOURCE=="movreco" et/ou RECO_VIA_BRIDGE actif. Reste None si les
+# artefacts movreco sont absents ou si l'import du pont échoue : le backend
+# retombe alors automatiquement sur le seed + le recommender natif.
+BRIDGE_ENGINE = None  # type: ignore[var-annotated]
+
 CURRENT_YEAR = datetime.now().year
+
+
+def get_bridge_engine():
+    """Charge (une seule fois) et renvoie le SynergyEngine, ou None en cas d'échec.
+
+    Import PARESSEUX du pont ``recommender_bridge`` : le module server.py reste
+    importable même sans movreco/artefacts. Toute erreur (import, RuntimeError
+    d'artefacts manquants, etc.) est journalisée en warning et convertie en
+    repli silencieux (renvoie None) pour ne JAMAIS planter le backend.
+    """
+    global BRIDGE_ENGINE
+    if BRIDGE_ENGINE is not None:
+        return BRIDGE_ENGINE
+    try:
+        from recommender_bridge import SynergyEngine
+        BRIDGE_ENGINE = SynergyEngine.load()
+        logger.info("Pont movie-reco chargé (catalogue Wikidata, licence-clean).")
+    except Exception as exc:  # noqa: BLE001 — repli volontairement large
+        logger.warning(
+            "Pont movie-reco indisponible (%s) — repli sur seed/recommender natif.",
+            exc,
+        )
+        BRIDGE_ENGINE = None
+    return BRIDGE_ENGINE
+
+
+def bridge_active() -> bool:
+    """Vrai si la délégation reco au pont est demandée ET le pont est chargé."""
+    return reco_via_bridge() and get_bridge_engine() is not None
+
+
+def _bridge_content_to_doc(c: dict) -> dict:
+    """Adapte un contenu du pont movie-reco au schéma de contenu SwipeNight.
+
+    Le pont renvoie ``{id, type, title, year, genres, directors, cast,
+    keywords, languages, source}``. On complète les champs attendus par le reste
+    du backend (feature store, scoring, payloads publics) avec des valeurs
+    neutres rétro-compatibles, et on mappe ``directors`` -> ``crew`` (clé
+    utilisée par le recommender natif pour la similarité et les explications).
+    """
+    now = now_iso()
+    return {
+        "id": str(c["id"]),
+        "type": c.get("type", "movie"),
+        "title": c.get("title", ""),
+        "original_title": c.get("title", ""),
+        "year": c.get("year"),
+        "overview": c.get("overview", ""),
+        "poster_url": None,
+        "backdrop_url": None,
+        "runtime": c.get("runtime"),
+        "genres": c.get("genres", []) or [],
+        "keywords": c.get("keywords", []) or [],
+        "cast": c.get("cast", []) or [],
+        # movie-reco fournit "directors" ; le recommender natif lit "crew".
+        "crew": c.get("directors", []) or [],
+        "languages": c.get("languages", []) or [],
+        "countries": c.get("countries", []) or [],
+        "studios": c.get("studios", []) or [],
+        "providers": [],
+        # Le catalogue movie-reco (Wikidata) n'a pas de note externe : on reste
+        # HONNÊTE (None plutôt qu'une note factice). Le recommender natif tolère
+        # None (cf. recommender.bayesian_score) et retombe sur la moyenne globale.
+        "external_rating": None,
+        "vote_count": 0,
+        "popularity": c.get("popularity", 0) or 0,
+        "metadata_source": "wikidata",
+        "image_source": None,
+        "external_ids": {"wikidata": str(c["id"])},
+        "source": c.get("source", "wikidata"),
+        "source_id": str(c["id"]),
+        "status": "released",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def build_catalog_from_bridge() -> list[dict]:
+    """Construit le catalogue SwipeNight depuis le pont movie-reco.
+
+    Lève si le pont est indisponible (l'appelant gère le repli sur le seed).
+    """
+    engine = get_bridge_engine()
+    if engine is None:
+        raise RuntimeError("Pont movie-reco indisponible")
+    return [_bridge_content_to_doc(c) for c in engine.catalog()]
 
 
 def now_iso():
@@ -256,6 +349,105 @@ def public_content(c):
 
 
 # ===========================================================================
+# Pont movie-reco : conversion états Mongo -> swipes + délégation reco
+# ===========================================================================
+# Correspondance état SwipeNight (Mongo) -> action de swipe attendue par le pont
+# (cf. recommender_bridge.SWIPE_TO_RATING). neutral -> aucune note côté pont.
+_STATE_TO_SWIPE = {
+    "seen_liked": "like",
+    "seen_disliked": "dislike",
+    "seen_neutral": "neutral",
+    "abandoned": "abandoned",
+    "watchlist": "watchlist",
+}
+
+
+def states_to_swipes(states):
+    """Convertit les états utilisateur (Mongo) en swipes pour le pont movie-reco.
+
+    Chaque swipe est ``{"content_id": <qid>, "action": <action>}``. Les notes
+    fines (``rating``) priment quand elles sont présentes : >=4.5 -> superlike,
+    >=3.5 -> like, <=2 -> dislike. Les contenus exclus de la reco deviennent un
+    ``veto`` (exclusion dure côté pont). Les états sans signal sont ignorés.
+    """
+    swipes = []
+    for st in states or []:
+        cid = st.get("content_id")
+        if not cid:
+            continue
+        if st.get("is_excluded_from_reco") or \
+                st.get("state") == "excluded_from_recommendations":
+            swipes.append({"content_id": cid, "action": "veto"})
+            continue
+        rating = st.get("rating")
+        action = None
+        if rating is not None:
+            if rating >= 4.5:
+                action = "superlike"
+            elif rating >= 3.5:
+                action = "like"
+            elif rating <= 2:
+                action = "dislike"
+        if action is None:
+            action = _STATE_TO_SWIPE.get(st.get("state"))
+        if action is None:
+            continue
+        swipes.append({"content_id": cid, "action": action})
+    return swipes
+
+
+def _bridge_reco_to_item(rec):
+    """Adapte une reco du pont ({id,title,score,reasons}) au format SwipeNight."""
+    cid = rec["id"]
+    content = CONTENTS.get(cid)
+    public = public_content(content) if content else {
+        "id": cid, "title": rec.get("title", ""), "type": "movie"}
+    match = max(1, min(99, round(float(rec.get("score", 0.0)) * 100)))
+    # Le pont renvoie des raisons en texte simple : on les normalise au format
+    # {code, text} utilisé par SwipeNight pour rester rétro-compatible côté UI.
+    reasons = [{"code": "movreco", "text": t} for t in (rec.get("reasons") or [])]
+    return {
+        "content": public,
+        "match_score": match,
+        "components": {"bridge_score": round(float(rec.get("score", 0.0)), 4)},
+        "reasons": reasons,
+    }
+
+
+def rank_via_bridge(states, context_key, limit):
+    """Classe les contenus via le pont movie-reco pour un contexte donné.
+
+    Délègue à ``SynergyEngine.recommend_for_user`` (à partir des swipes dérivés
+    des états Mongo), puis applique le filtrage de contexte SwipeNight
+    (movies/series/anime/platforms/new) sur les résultats. Renvoie une liste au
+    format des endpoints de reco SwipeNight. Suppose ``bridge_active()`` vrai.
+    """
+    engine = get_bridge_engine()
+    swipes = states_to_swipes(states)
+    # On demande large puis on filtre par contexte pour atteindre ``limit``.
+    recs = engine.recommend_for_user(swipes, n=max(limit * 4, 40))
+    out = []
+    for rec in recs:
+        content = CONTENTS.get(rec["id"])
+        # Filtrage de contexte (mêmes règles que rank_for_context côté natif).
+        if context_key in ("movies", "series", "anime"):
+            ctype = (content or {}).get("type")
+            want = {"movies": "movie"}.get(context_key, context_key)
+            if ctype != want:
+                continue
+        elif context_key == "new":
+            year = (content or {}).get("year") or 0
+            if year < CURRENT_YEAR - 2:
+                continue
+        # context "platforms" : le catalogue movie-reco n'a pas de providers ;
+        # on laisse passer (pas de filtrage destructif) — le natif gère le cas.
+        out.append(_bridge_reco_to_item(rec))
+        if len(out) >= limit:
+            break
+    return out
+
+
+# ===========================================================================
 # Auth
 # ===========================================================================
 @api.post("/auth/register")
@@ -414,6 +606,19 @@ async def browse(q: str = "", type: str = "", genre: str = "", platform: str = "
 
 @api.get("/contents/calibration")
 async def calibration(user=Depends(get_current_user)):
+    # Synergie : si le pont est actif, on propose des titres de calibration
+    # issus de l'apprentissage actif movie-reco (couverture de l'espace des
+    # goûts) plutôt qu'un top popularité aléatoire.
+    if bridge_active():
+        titles = get_bridge_engine().calibration_titles(n=20)
+        results = []
+        for t in titles:
+            content = CONTENTS.get(t["id"])
+            results.append(public_content(content) if content
+                           else {"id": t["id"], "title": t.get("title", ""),
+                                 "type": "movie"})
+        if results:
+            return {"results": results}
     items = sorted(CONTENTS.values(), key=lambda c: c.get("popularity", 0), reverse=True)[:30]
     random.shuffle(items)
     return {"results": [public_content(c) for c in items[:20]]}
@@ -463,13 +668,21 @@ async def content_detail(content_id: str, user=Depends(get_current_user)):
 @api.get("/recommendations")
 async def recommendations(context: str = "general", limit: int = 20,
                           user=Depends(get_current_user)):
-    ctx = await build_user_context(user)
+    states = await get_user_states(user["id"])
+    # Synergie : délégation au moteur movie-reco si activé et disponible.
+    if bridge_active():
+        return {"context": context,
+                "results": rank_via_bridge(states, context, limit)}
+    ctx = await build_user_context(user, states)
     return {"context": context, "results": rank_for_context(ctx, context, limit)}
 
 
 @api.get("/recommendations/home")
 async def home_feed(user=Depends(get_current_user)):
-    ctx = await build_user_context(user)
+    states = await get_user_states(user["id"])
+    prefs = user.get("preferences", {}) or {}
+    use_bridge = bridge_active()
+    ctx = None if use_bridge else await build_user_context(user, states)
     rails = [
         ("Recommended for you", "general"),
         ("Available on your platforms", "platforms"),
@@ -478,9 +691,12 @@ async def home_feed(user=Depends(get_current_user)):
     ]
     feed = []
     for title, key in rails:
-        if key == "platforms" and not ctx.get("platforms"):
+        if key == "platforms" and not prefs.get("platforms"):
             continue
-        items = rank_for_context(ctx, key, 12)
+        if use_bridge:
+            items = rank_via_bridge(states, key, 12)
+        else:
+            items = rank_for_context(ctx, key, 12)
         if items:
             feed.append({"title": title, "context": key, "items": items})
     # hero = top general pick
@@ -733,22 +949,13 @@ async def update_filters(room_id: str, body: RoomFiltersBody, user=Depends(get_c
     return await room_public(await db.rooms.find_one({"id": room_id}, {"_id": 0}))
 
 
-async def generate_room_candidates(room):
-    """Group-rank the catalog for the room and persist room_candidates."""
-    member_ids = await room_member_ids(room["id"])
-    filters = room.get("filters", {})
-    # build per-member context
-    contexts = {}
-    member_states = {}
-    for uid in member_ids:
-        u = await db.users.find_one({"id": uid})
-        if not u:
-            continue
-        states = await get_user_states(uid)
-        member_states[uid] = {s["content_id"]: s for s in states}
-        contexts[uid] = await build_user_context(u, states)
+def _room_filter_predicate(filters, member_ids, member_states):
+    """Construit le prédicat de filtrage catalogue d'une room (réutilisable).
 
-    # filter catalog
+    Identique au filtrage historique : formats/genres/plateformes/notes/durée/
+    années + règle des « déjà-vus » (par tous / par certains). Partagé par le
+    chemin natif et le chemin pont pour garantir une sémantique cohérente.
+    """
     def passes(c):
         if filters.get("formats") and c["type"] not in filters["formats"]:
             return False
@@ -776,28 +983,91 @@ async def generate_room_candidates(room):
         if not filters.get("allow_seen_by_some", True) and seen_by > 0:
             return False
         return True
+    return passes
 
-    candidates = [c for c in CONTENTS.values() if passes(c)]
-    scored = []
-    for c in candidates:
-        member_scores, veto_count, shared_watch = [], 0, 0
-        for uid in member_ids:
-            ctx = contexts.get(uid)
-            if not ctx:
-                continue
-            if c["id"] in ctx["excluded"]:
-                veto_count += 1
-            s, _ = R.score_content(c, CONTENT_VECTORS[c["id"]], ctx["user_vector"], ctx)
-            member_scores.append(s)
-            if member_states.get(uid, {}).get(c["id"], {}).get("state") == "watchlist":
-                shared_watch += 1
-        plats = set(filters.get("platforms", []))
-        shared_platform = 1 if (plats & set(c.get("providers", []))) or not plats else 0
-        gs, comp = R.group_score(member_scores, shared_watch / max(1, len(member_ids)),
-                                 shared_platform, veto_count)
-        reasons = R.group_explanation(len(member_ids), comp, shared_watch, shared_platform)
-        scored.append((c, gs, comp, reasons))
-    scored.sort(key=lambda x: x[1], reverse=True)
+
+async def _room_candidates_via_bridge(room, member_ids, member_states, filters):
+    """Génère les candidats de room via le pont movie-reco (group_score).
+
+    Construit les membres ``{"user", "swipes"}`` à partir des états Mongo,
+    délègue à ``SynergyEngine.recommend_for_room`` (qui agrège les scores
+    individuels movie-reco via ``recommender.group_score`` — la SYNERGIE), puis
+    applique les filtres catalogue SwipeNight sur les résultats. Renvoie une
+    liste de tuples ``(content, group_score, components, reasons)`` triée.
+    """
+    engine = get_bridge_engine()
+    members = [
+        {"user": uid,
+         "swipes": states_to_swipes(list(member_states.get(uid, {}).values()))}
+        for uid in member_ids
+    ]
+    # On demande plus large que 30 car le filtrage catalogue retire ensuite des
+    # candidats (déjà-vus, genres, années...).
+    recs = engine.recommend_for_room(members, n=max(len(CONTENTS), 30))
+    passes = _room_filter_predicate(filters, member_ids, member_states)
+    n_members = len(member_ids)
+    out = []
+    for rec in recs:
+        c = CONTENTS.get(rec["id"])
+        if not c or not passes(c):
+            continue
+        comp = dict(rec.get("components") or {})
+        shared_watch = sum(
+            1 for uid in member_ids
+            if member_states.get(uid, {}).get(c["id"], {}).get("state") == "watchlist")
+        reasons = R.group_explanation(n_members, comp, shared_watch, 0)
+        out.append((c, float(rec.get("group_score", 0.0)), comp, reasons))
+    return out
+
+
+async def generate_room_candidates(room):
+    """Group-rank the catalog for the room and persist room_candidates.
+
+    Si la SYNERGIE reco (pont movie-reco) est active, le classement de groupe est
+    délégué au pont (qui agrège les scores individuels movie-reco via
+    ``recommender.group_score``). Sinon, on garde le group-ranking natif. Dans
+    les DEUX cas, on persiste ``room_candidates`` dans Mongo : le flux de vote /
+    résultat reste strictement inchangé.
+    """
+    member_ids = await room_member_ids(room["id"])
+    filters = room.get("filters", {})
+    # build per-member context + states
+    contexts = {}
+    member_states = {}
+    for uid in member_ids:
+        u = await db.users.find_one({"id": uid})
+        if not u:
+            continue
+        states = await get_user_states(uid)
+        member_states[uid] = {s["content_id"]: s for s in states}
+        contexts[uid] = await build_user_context(u, states)
+
+    if bridge_active():
+        scored = await _room_candidates_via_bridge(
+            room, member_ids, member_states, filters)
+    else:
+        passes = _room_filter_predicate(filters, member_ids, member_states)
+        candidates = [c for c in CONTENTS.values() if passes(c)]
+        scored = []
+        for c in candidates:
+            member_scores, veto_count, shared_watch = [], 0, 0
+            for uid in member_ids:
+                ctx = contexts.get(uid)
+                if not ctx:
+                    continue
+                if c["id"] in ctx["excluded"]:
+                    veto_count += 1
+                s, _ = R.score_content(c, CONTENT_VECTORS[c["id"]], ctx["user_vector"], ctx)
+                member_scores.append(s)
+                if member_states.get(uid, {}).get(c["id"], {}).get("state") == "watchlist":
+                    shared_watch += 1
+            plats = set(filters.get("platforms", []))
+            shared_platform = 1 if (plats & set(c.get("providers", []))) or not plats else 0
+            gs, comp = R.group_score(member_scores, shared_watch / max(1, len(member_ids)),
+                                     shared_platform, veto_count)
+            reasons = R.group_explanation(len(member_ids), comp, shared_watch, shared_platform)
+            scored.append((c, gs, comp, reasons))
+        scored.sort(key=lambda x: x[1], reverse=True)
 
     await db.room_candidates.delete_many({"room_id": room["id"], "round": room.get("round", 1)})
     docs = []
@@ -1241,12 +1511,42 @@ async def seed_demo_room():
                 "joined_at": now_iso(), "left_at": None})
 
 
+def _boot_catalog() -> tuple[list[dict], str]:
+    """Construit le catalogue de démarrage selon CATALOG_SOURCE.
+
+    - "movreco" (défaut) : catalogue via le pont (Wikidata, licence-clean). En
+      cas d'échec du pont (artefacts absents, import KO), WARN + repli AUTO sur
+      le seed (ne JAMAIS planter le démarrage).
+    - "seed" : seed_data.build_catalog() (comportement d'origine).
+
+    Renvoie (catalogue, source_effective) où ``source_effective`` reflète la
+    source réellement utilisée (utile pour le log de démarrage / le repli).
+    """
+    source = catalog_source()
+    if source == "movreco":
+        try:
+            catalog = build_catalog_from_bridge()
+            logger.info(
+                "Catalogue movie-reco (pont) : %d contenus (Wikidata CC0).",
+                len(catalog),
+            )
+            return catalog, "movreco"
+        except Exception as exc:  # noqa: BLE001 — repli volontairement large
+            logger.warning(
+                "Catalogue movie-reco indisponible (%s) — repli sur le seed.", exc
+            )
+    # source == "seed" OU repli après échec du pont.
+    catalog = build_catalog()
+    return catalog, "seed"
+
+
 @app.on_event("startup")
 async def startup():
     if await db.contents.count_documents({}) == 0:
-        catalog = build_catalog()
-        await db.contents.insert_many([{**c} for c in catalog])
-        logger.info("Seeded %d contents", len(catalog))
+        catalog, used_source = _boot_catalog()
+        if catalog:
+            await db.contents.insert_many([{**c} for c in catalog])
+        logger.info("Seeded %d contents (source=%s)", len(catalog), used_source)
     await load_feature_store()
     reason = tmdb_disabled_reason()
     if reason:

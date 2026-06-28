@@ -191,6 +191,14 @@ def build_user_vector(interactions, content_vectors, half_life=HALF_LIFE_DAYS):
 # Quality (Bayesian-adjusted rating)
 # ---------------------------------------------------------------------------
 def bayesian_score(R, v, C=BAYES_C, m=BAYES_M):
+    # Robustesse SYNERGIE : le catalogue movie-reco (Wikidata) ne fournit pas de
+    # note externe ni de nombre de votes, donc ``external_rating``/``vote_count``
+    # peuvent valoir None (clé présente -> le défaut de .get() ne s'applique pas).
+    # On retombe alors sur la moyenne globale C / 0 vote au lieu de planter.
+    if R is None:
+        R = C
+    if v is None:
+        v = 0
     if (v + m) == 0:
         return C
     return (v / (v + m)) * R + (m / (v + m)) * C
