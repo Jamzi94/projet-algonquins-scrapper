@@ -11,3 +11,6 @@ models/*.npy
 !**/.gitkeep
 .DS_Store
 .ipynb_checkpoints/
+
+# Metadonnees pip install -e
+*.egg-info/

@@ -12,7 +12,16 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/")
-assert BASE_URL, "EXPO_PUBLIC_BACKEND_URL must be set"
+# Test d'intégration live-server : nécessite RÉSEAU + MongoDB + un backend lancé,
+# accessible via EXPO_PUBLIC_BACKEND_URL. En l'absence de cette variable (ex.
+# environnement hors-ligne), on saute le module entier au lieu d'interrompre la
+# collecte pytest (skip au niveau module plutôt qu'assert qui casse tout).
+if not BASE_URL:
+    pytest.skip(
+        "EXPO_PUBLIC_BACKEND_URL non défini : test d'intégration live-server "
+        "ignoré (prérequis RÉSEAU + MongoDB + backend lancé).",
+        allow_module_level=True,
+    )
 API = f"{BASE_URL}/api"
 
 SEEDED_EMAIL = "alex_noir@swipenight.app"
