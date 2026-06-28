@@ -166,6 +166,19 @@ def create_app(cfg: dict | None = None) -> "FastAPI":
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return schemas.RecommendResponse(mode=effective, results=results)
 
+    # ----------------------------------------------------------------------- #
+    # GET /suggest (films à noter en priorité : apprentissage actif)
+    # ----------------------------------------------------------------------- #
+    @app.get("/suggest", response_model=schemas.SuggestResponse)
+    def get_suggest(
+        n: int = Query(default=10, ge=1, description="Nombre de films à proposer."),
+    ) -> schemas.SuggestResponse:
+        try:
+            results = service.suggest_owner(_state(), n=n)
+        except service.ArtifactMissing as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return schemas.SuggestResponse(results=results)
+
     return app
 
 

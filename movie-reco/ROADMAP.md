@@ -17,12 +17,12 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 ## Phase 1 — MVP embeddings (retrieval)
 - [ ] `movreco ingest` : vérifier le taux d'appariement, corriger `matching_report.csv` à la main si besoin.
 - [ ] Améliorer `ingest/matching.py` : gérer titres localisés (P1476/altLabels), seuil adaptatif, désambiguïsation par année stricte.
-- [ ] `movreco synopsis` : passer du résumé (lead) au texte complet via l'API `action=query&prop=extracts&explaintext` pour des embeddings plus riches.
+- [x] `movreco synopsis` : passer du résumé (lead) au texte complet via l'API `action=query&prop=extracts&explaintext` pour des embeddings plus riches.
 - [ ] `movreco embed` puis `movreco recommend --mode mvp` : revue qualitative du top-N.
 - [ ] Régler `recommend.candidates`, `mmr_lambda`, `popularity_penalty` dans `config.yaml`.
 
 ## Phase 2 — Couche hybride (préférence supervisée)
-- [ ] `movreco features` : enrichir les features structurées (acteurs P161, mots-clés, durée, langue).
+- [x] `movreco features` : enrichir les features structurées (acteurs P161, mots-clés, durée, langue).
 - [ ] `movreco train` : viser une MAE leave-one-out raisonnable ; itérer sur les features.
 - [ ] `movreco recommend --mode hybrid` : comparer au mode mvp sur ta revue qualitative.
 - [x] Ajouter une vraie évaluation de classement (NDCG@k sur split temporel) dans `model/evaluate.py`.
@@ -30,8 +30,8 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 ## Phase 3 — Robustesse et produit
 - [x] Mettre en cache les appels Wikidata/Wikipedia (éviter de refaire les requêtes).
 - [x] Persister l'index FAISS (`save_index`/`load_index`) au lieu de le reconstruire à chaque reco.
-- [ ] Boucle d'apprentissage actif : proposer en priorité des films à fort gain d'information.
-- [ ] Sérendipité contrôlée : réserver une fraction du top-N à des items pertinents mais éloignés.
+- [x] Boucle d'apprentissage actif : proposer en priorité des films à fort gain d'information.
+- [x] Sérendipité contrôlée : réserver une fraction du top-N à des items pertinents mais éloignés.
 - [x] Exposer une petite API (FastAPI) ou une UI si besoin produit.
 
 ## Phase 4 — Option LLM

@@ -14,11 +14,23 @@ embeddings:
   model: paraphrase-multilingual-MiniLM-L12-v2   # multilingue, adapte au francais
   batch_size: 64
 
+synopsis:
+  full_text: true            # true = article Wikipedia complet, false = lead (resume) seul
+  max_chars: 6000            # tronque le texte integral a ce nombre de caracteres (full_text)
+
+features:
+  top_actors: 300            # nb max d'acteurs gardes en multi-hot (P161)
+  top_keywords: 100          # nb max de mots-cles gardes en multi-hot (P921)
+
 recommend:
   top_n: 20
   candidates: 400            # nb de candidats recuperes par FAISS avant re-ranking
   mmr_lambda: 0.7            # 1.0 = pertinence pure, 0.0 = diversite pure
   popularity_penalty: 0.15   # 0 = aucun de-biais, plus haut = penalise les blockbusters
+  serendipity: 0.2           # 0 = aucune, fraction du top-N reservee a des items pertinents mais eloignes
+
+active:
+  lambda_pop: 0.0            # poids de la popularite dans l'apprentissage actif (0 = exploration pure)
 
 model:
   min_train: 20             # nb minimal de films notes pour autoriser le mode hybride

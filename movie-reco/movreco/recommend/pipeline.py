@@ -8,7 +8,13 @@ from movreco.features.combine import feature_matrix
 from movreco.model import preference
 from movreco.model.taste_vector import cosine_scores, signed_taste_vector
 from movreco.recommend import index as faiss_index
-from movreco.recommend.diversity import minmax, mmr, popularity_penalty
+from movreco.recommend.diversity import (
+    minmax,
+    mmr,
+    novelty_scores,
+    popularity_penalty,
+    serendipity_picks,
+)
 
 
 def recommend(
@@ -34,6 +40,10 @@ def recommend(
     n_cand = rc.get("candidates", 400)
     lam = rc.get("mmr_lambda", 0.7)
     pop_w = rc.get("popularity_penalty", 0.15)
+    # Sérendipité : fraction [0,1] du top-N réservée à des items pertinents mais
+    # éloignés du goût. 0.0 (défaut) -> comportement strictement inchangé.
+    serendipity = float(rc.get("serendipity", 0.0) or 0.0)
+    serendipity = min(max(serendipity, 0.0), 1.0)
 
     qids = list(items["qid"].values)
     posmap = {q: i for i, q in enumerate(qids)}
@@ -51,7 +61,14 @@ def recommend(
         index = faiss_index.build_or_load(emb, index_path)
     else:
         index = faiss_index.build_index(emb)
-    cand_pos, _ = faiss_index.search(index, taste, min(n_cand, len(qids)))
+    # En mode sérendipité, on a besoin d'un vivier de candidats assez large pour
+    # contenir des films pertinents MAIS éloignés du goût (au-delà du strict
+    # voisinage du vecteur de goût). On augmente donc le nombre de candidats
+    # récupérés sans jamais réduire le comportement par défaut.
+    k_search = min(n_cand, len(qids))
+    if serendipity > 0.0:
+        k_search = min(max(n_cand, 4 * top_n), len(qids))
+    cand_pos, _ = faiss_index.search(index, taste, k_search)
 
     excluded = set(exclude or []) | set(rated_qids)
     cand_pos = [int(i) for i in cand_pos if qids[int(i)] not in excluded]
@@ -74,7 +91,45 @@ def recommend(
     relevance = popularity_penalty(minmax(scores), popularity, pop_w)
 
     sub_emb = emb[cand_pos]
-    chosen_pos, chosen_local = mmr(cand_pos, minmax(relevance), sub_emb, top_n, lam)
+    rel_norm = minmax(relevance)
+
+    n_ser = int(round(top_n * serendipity)) if serendipity > 0.0 else 0
+    # On ne réserve jamais TOUT le top-N à la sérendipité : on garde au moins une
+    # place pour la sélection MMR pertinente.
+    n_ser = min(n_ser, max(top_n - 1, 0))
+
+    if n_ser <= 0:
+        chosen_pos, chosen_local = mmr(cand_pos, rel_norm, sub_emb, top_n, lam)
+    else:
+        # 1) Sélection MMR habituelle pour la majeure partie du top-N.
+        n_mmr = top_n - n_ser
+        mmr_pos, mmr_local = mmr(cand_pos, rel_norm, sub_emb, n_mmr, lam)
+
+        # 2) Emplacements sérendipité : items pertinents (au-dessus de la médiane
+        # de pertinence) mais à forte nouveauté (faible cosinus au goût). On
+        # exclut ceux déjà retenus par le MMR pour éviter les doublons.
+        novelty = novelty_scores(sub_emb, taste)
+        ser_pos, ser_local = serendipity_picks(
+            cand_pos, relevance, novelty, n_ser, already_local=mmr_local
+        )
+
+        chosen_pos = list(mmr_pos) + list(ser_pos)
+        chosen_local = list(mmr_local) + list(ser_local)
+
+        # 3) Si la sérendipité n'a pas pu pourvoir tous ses emplacements (vivier
+        # trop petit), on complète avec la suite du classement MMR pour garantir
+        # une longueur finale de top_n sans doublon.
+        if len(chosen_local) < top_n:
+            taken = set(chosen_local)
+            extra_pos, extra_local = mmr(cand_pos, rel_norm, sub_emb, top_n, lam)
+            for gp, lp in zip(extra_pos, extra_local):
+                if lp in taken:
+                    continue
+                chosen_pos.append(gp)
+                chosen_local.append(lp)
+                taken.add(lp)
+                if len(chosen_local) >= top_n:
+                    break
 
     result = items.iloc[chosen_pos][["qid", "label"]].copy()
     result["score"] = [float(scores[i]) for i in chosen_local]

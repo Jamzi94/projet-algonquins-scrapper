@@ -109,6 +109,19 @@ class RecommendResponse(BaseModel):
     results: list[ScoredMovie] = Field(default_factory=list)
 
 
+class SuggestedMovie(BaseModel):
+    """Film proposé à la notation (apprentissage actif)."""
+
+    qid: str
+    label: str
+
+
+class SuggestResponse(BaseModel):
+    """Réponse de GET /suggest (films à noter en priorité)."""
+
+    results: list[SuggestedMovie] = Field(default_factory=list)
+
+
 class HealthArtifacts(BaseModel):
     """Présence/volumétrie des artefacts chargés."""
 

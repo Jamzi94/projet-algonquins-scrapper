@@ -29,10 +29,39 @@ movreco embed                  # calcule les embeddings
 movreco features               # features structurees (genres, realisateurs, ...)
 movreco train                  # entraine le modele de preference (mode hybride)
 movreco recommend --mode hybrid   # ou --mode mvp pour la version embeddings seule
+movreco suggest --n 10         # films a noter en priorite (apprentissage actif)
 movreco evaluate               # MAE leave-one-out + NDCG@k (split temporel)
 ```
 Artefacts dans `data/processed/` et `models/`. Vérifie `data/processed/matching_report.csv`
 après l'ingestion (l'appariement titre/année est imparfait).
+
+### Synopsis : texte intégral ou résumé
+Par défaut (`synopsis.full_text: true`), `movreco synopsis` récupère le **texte intégral**
+de l'article Wikipédia (API `action=query&prop=extracts&explaintext`), tronqué à
+`synopsis.max_chars` (6000 par défaut), pour des embeddings plus riches. Mettre
+`synopsis.full_text: false` revient au résumé (lead) seul, comportement historique.
+
+### Features structurées enrichies
+`movreco features` produit, en plus des genres / réalisateurs / pays / décennie, des
+features multi-hot pour les **acteurs** (`actor__`, P161), les **mots-clés** (`kw__`, P921)
+et les **langues d'origine** (`lang__`, P364), ainsi qu'une feature numérique de **durée**
+(`duration_min`). Le nombre d'acteurs et de mots-clés conservés est réglable via
+`features.top_actors` (300) et `features.top_keywords` (100). Ces colonnes sont
+rétro-compatibles : un catalogue qui ne fournit pas ces métadonnées produit exactement
+les mêmes features qu'avant.
+
+### Sérendipité contrôlée
+`recommend.serendipity` (0.2 par défaut, plage `[0, 1]`) réserve une fraction du top-N à
+des films **pertinents mais éloignés** du goût (forte nouveauté = faible cosinus au vecteur
+de goût) ; le reste du top-N suit la sélection MMR habituelle. À `0.0`, aucun changement
+par rapport au comportement de base.
+
+### Apprentissage actif (films à noter en priorité)
+`movreco suggest --n 10` propose les films dont la notation apporterait le plus
+d'information : échantillonnage du point le plus éloigné sur les embeddings (couvre
+l'espace des goûts plutôt que des doublons proches de ce qui est déjà noté), en excluant
+les films déjà notés. `active.lambda_pop` (0.0 par défaut) permet de pondérer par la
+popularité pour rester sur des films plus connus.
 
 ## Performance et évaluation
 - **Cache réseau** : les requêtes Wikidata (SPARQL) et Wikipedia (synopsis) sont mises en
@@ -75,6 +104,9 @@ Documentation interactive auto-générée (Swagger) : http://127.0.0.1:8000/docs
   (le champ `mode` de la réponse reflète le mode réellement utilisé).
 - `GET /recommend?mode=hybrid&n=10` — recommandations à partir des notes persistées du
   propriétaire (`rated.parquet`).
+- `GET /suggest?n=10` — films à noter en priorité (apprentissage actif) : couvre l'espace
+  des goûts en excluant les films déjà notés. Réponse : `{"results": [{"qid", "label"}, ...]}`.
+  `503` si les embeddings ne sont pas chargés.
 
 Exemple `POST /recommend` :
 ```bash

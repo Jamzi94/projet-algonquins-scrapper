@@ -176,6 +176,10 @@ def fetch_catalog_by_year(year: int, cfg: dict) -> list[dict]:
            (GROUP_CONCAT(DISTINCT ?g; separator="|") AS ?genres)
            (GROUP_CONCAT(DISTINCT ?d; separator="|") AS ?directors)
            (GROUP_CONCAT(DISTINCT ?c; separator="|") AS ?countries)
+           (GROUP_CONCAT(DISTINCT ?a; separator="|") AS ?cast)
+           (GROUP_CONCAT(DISTINCT ?k; separator="|") AS ?keywords)
+           (GROUP_CONCAT(DISTINCT ?lg; separator="|") AS ?languages)
+           (SAMPLE(?dur) AS ?duration)
     WHERE {{
       ?film wdt:P31 wd:{FILM_QID} ; wdt:P577 ?date .
       FILTER(YEAR(?date) = {int(year)})
@@ -183,6 +187,10 @@ def fetch_catalog_by_year(year: int, cfg: dict) -> list[dict]:
       OPTIONAL {{ ?film wdt:P136 ?gi . ?gi rdfs:label ?g . FILTER(lang(?g)="{lang}") }}
       OPTIONAL {{ ?film wdt:P57 ?di . ?di rdfs:label ?d . FILTER(lang(?d)="{lang}") }}
       OPTIONAL {{ ?film wdt:P495 ?ci . ?ci rdfs:label ?c . FILTER(lang(?c)="{lang}") }}
+      OPTIONAL {{ ?film wdt:P161 ?ai . ?ai rdfs:label ?a . FILTER(lang(?a)="{lang}") }}
+      OPTIONAL {{ ?film wdt:P921 ?ki . ?ki rdfs:label ?k . FILTER(lang(?k)="{lang}") }}
+      OPTIONAL {{ ?film wdt:P364 ?lgi . ?lgi rdfs:label ?lg . FILTER(lang(?lg)="{lang}") }}
+      OPTIONAL {{ ?film wdt:P2047 ?dur . }}
       OPTIONAL {{ ?film wdt:P345 ?imdb . }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
     }}
@@ -206,6 +214,10 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
                (GROUP_CONCAT(DISTINCT ?g; separator="|") AS ?genres)
                (GROUP_CONCAT(DISTINCT ?d; separator="|") AS ?directors)
                (GROUP_CONCAT(DISTINCT ?c; separator="|") AS ?countries)
+               (GROUP_CONCAT(DISTINCT ?a; separator="|") AS ?cast)
+               (GROUP_CONCAT(DISTINCT ?k; separator="|") AS ?keywords)
+               (GROUP_CONCAT(DISTINCT ?lg; separator="|") AS ?languages)
+               (SAMPLE(?dur) AS ?duration)
         WHERE {{
           VALUES ?film {{ {values} }}
           OPTIONAL {{ ?film wdt:P577 ?date . }}
@@ -213,6 +225,10 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
           OPTIONAL {{ ?film wdt:P136 ?gi . ?gi rdfs:label ?g . FILTER(lang(?g)="{lang}") }}
           OPTIONAL {{ ?film wdt:P57 ?di . ?di rdfs:label ?d . FILTER(lang(?d)="{lang}") }}
           OPTIONAL {{ ?film wdt:P495 ?ci . ?ci rdfs:label ?c . FILTER(lang(?c)="{lang}") }}
+          OPTIONAL {{ ?film wdt:P161 ?ai . ?ai rdfs:label ?a . FILTER(lang(?a)="{lang}") }}
+          OPTIONAL {{ ?film wdt:P921 ?ki . ?ki rdfs:label ?k . FILTER(lang(?k)="{lang}") }}
+          OPTIONAL {{ ?film wdt:P364 ?lgi . ?lgi rdfs:label ?lg . FILTER(lang(?lg)="{lang}") }}
+          OPTIONAL {{ ?film wdt:P2047 ?dur . }}
           OPTIONAL {{ ?film wdt:P345 ?imdb . }}
           SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
         }}

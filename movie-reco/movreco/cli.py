@@ -60,15 +60,33 @@ def _load_aligned_emb(P: dict, items: pd.DataFrame) -> np.ndarray:
 
 
 def _normalize_catalog(df: pd.DataFrame) -> pd.DataFrame:
-    cols = ["qid", "label", "genres", "directors", "countries", "date", "popularity", "imdb"]
+    cols = [
+        "qid",
+        "label",
+        "genres",
+        "directors",
+        "countries",
+        "cast",
+        "keywords",
+        "duration",
+        "languages",
+        "date",
+        "popularity",
+        "imdb",
+    ]
     if df.empty:
         return pd.DataFrame(columns=cols)
     df = df.copy()
     df["qid"] = df["film"].str.rsplit("/", n=1).str[-1]
     df = df.rename(columns={"filmLabel": "label"})
-    for col in ["genres", "directors", "countries", "imdb"]:
+    # Colonnes texte '|'-separees : defaut "" si absentes (retro-compatible).
+    for col in ["genres", "directors", "countries", "cast", "keywords", "languages", "imdb"]:
         if col not in df:
             df[col] = ""
+    # Duree en minutes : feature numerique, defaut 0 si absente.
+    if "duration" not in df:
+        df["duration"] = 0
+    df["duration"] = pd.to_numeric(df["duration"], errors="coerce").fillna(0)
     if "popularity" not in df:
         df["popularity"] = 0
     df["popularity"] = pd.to_numeric(df["popularity"], errors="coerce").fillna(0)
@@ -164,14 +182,23 @@ def synopsis():
 
     session = requests.Session()
     cache_dir = _cache_dir(cfg)
+    lang = cfg.get("language", "fr")
+    syn_cfg = cfg.get("synopsis", {}) or {}
+    full_text = bool(syn_cfg.get("full_text", False))
+    max_chars = syn_cfg.get("max_chars")
+    if full_text:
+        rprint("[cyan]Mode texte integral (article complet).[/cyan]")
     rows = []
     for qid in tqdm.tqdm(items["qid"].tolist(), desc="synopsis"):
         title = titles.get(qid)
-        text = (
-            syn.fetch_summary(title, cfg.get("language", "fr"), session, cache_dir=cache_dir)
-            if title
-            else None
-        )
+        if not title:
+            text = None
+        elif full_text:
+            text = syn.fetch_extract_full(
+                title, lang, session, cache_dir=cache_dir, max_chars=max_chars
+            )
+        else:
+            text = syn.fetch_summary(title, lang, session, cache_dir=cache_dir)
         rows.append({"qid": qid, "text": text})
 
     sdf = pd.DataFrame(rows)
@@ -217,7 +244,13 @@ def features():
     cfg = _cfg()
     P = paths(cfg)
     items = pd.read_parquet(P["items"])
-    feats = build_structured_features(items)
+    fcfg = cfg.get("features", {}) or {}
+    kwargs: dict = {}
+    if "top_actors" in fcfg:
+        kwargs["top_actors"] = int(fcfg["top_actors"])
+    if "top_keywords" in fcfg:
+        kwargs["top_keywords"] = int(fcfg["top_keywords"])
+    feats = build_structured_features(items, **kwargs)
     P["structured"].parent.mkdir(parents=True, exist_ok=True)
     feats.to_parquet(P["structured"])
     rprint(f"[green]features structurees : {feats.shape}[/green]")
@@ -331,6 +364,55 @@ def recommend(
         rprint("[yellow]Aucune recommandation (verifie que l'ingestion et les embeddings sont faits).[/yellow]")
     else:
         _print_reco(result, expl)
+
+
+@app.command()
+def suggest(
+    n: int = typer.Option(10, help="nombre de films a proposer a la notation"),
+):
+    """Propose des films à noter en priorité (apprentissage actif).
+
+    Échantillonnage du point le plus éloigné sur les embeddings : couvre l'espace
+    des goûts plutôt que de proposer des films proches de ce qui est déjà noté.
+    """
+    from movreco.model import active
+
+    cfg = _cfg()
+    P = paths(cfg)
+    items = pd.read_parquet(P["items"])
+    emb = _load_aligned_emb(P, items)
+    rated_qids = (
+        pd.read_parquet(P["rated"])["qid"].tolist() if P["rated"].exists() else []
+    )
+
+    popularity = (
+        pd.to_numeric(items["popularity"], errors="coerce").fillna(0).to_numpy()
+        if "popularity" in items.columns
+        else None
+    )
+    lambda_pop = float(cfg.get("active", {}).get("lambda_pop", 0.0) or 0.0)
+
+    suggestions = active.suggest_to_rate(
+        emb,
+        items["qid"].tolist(),
+        rated_qids,
+        n=n,
+        popularity=popularity,
+        lambda_pop=lambda_pop,
+    )
+
+    if not suggestions:
+        rprint("[yellow]Aucun film a proposer (catalogue vide ou tout deja note).[/yellow]")
+        return
+
+    label_by_qid = dict(zip(items["qid"], items["label"]))
+    table = Table(title="Films a noter en priorite")
+    table.add_column("#", justify="right")
+    table.add_column("qid")
+    table.add_column("Film")
+    for i, qid in enumerate(suggestions):
+        table.add_row(str(i + 1), str(qid), str(label_by_qid.get(qid, "")))
+    rprint(table)
 
 
 @app.command()

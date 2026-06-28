@@ -26,6 +26,7 @@ def build_synthetic_catalog(
     per_genre: int = 15,
     dim: int = 16,
     seed: int = 0,
+    enriched: bool = False,
 ):
     """Construit un catalogue synthétique sur disque et renvoie ses métadonnées.
 
@@ -41,6 +42,11 @@ def build_synthetic_catalog(
     data_dir : chemin du dossier de données (souvent ``tmp_path``).
     models_dir : dossier des modèles (défaut : ``<data_dir>/models``).
     n_genres, per_genre, dim, seed : taille et reproductibilité du catalogue.
+    enriched : si ``True``, ajoute aux items les colonnes ÉTENDUES déterministes
+        ``cast``/``keywords``/``languages``/``duration`` (un casting et des
+        mots-clés propres à chaque genre). Défaut ``False`` : le catalogue est
+        STRICTEMENT identique au comportement historique (aucune colonne en plus,
+        rétro-compatibilité totale avec les tests existants).
 
     Renvoie
     -------
@@ -120,6 +126,26 @@ def build_synthetic_catalog(
             "countries": countries,
         }
     )
+
+    # Colonnes ÉTENDUES (opt-in) : déterministes et corrélées au genre, pour
+    # exercer les features acteurs/mots-clés/langues/durée sans réseau. Désactivées
+    # par défaut afin de ne RIEN changer au catalogue historique.
+    if enriched:
+        items["cast"] = [
+            f"Acteur {g} A|Acteur {g} B"
+            for g in [genre_names.index(name) for name in genres]
+        ]
+        items["keywords"] = [
+            f"thème {genre_names.index(name)}|récit {genre_names.index(name) % 2}"
+            for name in genres
+        ]
+        items["languages"] = [
+            "français" if genre_names.index(name) % 2 == 0 else "anglais"
+            for name in genres
+        ]
+        # Durée déterministe variant par genre (minutes).
+        items["duration"] = [90 + 10 * genre_names.index(name) for name in genres]
+
     emb = np.asarray(vectors, dtype="float32")
 
     # --- Écriture des artefacts ------------------------------------------- #

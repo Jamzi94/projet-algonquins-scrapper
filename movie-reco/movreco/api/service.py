@@ -323,6 +323,46 @@ def recommend_owner(
     return _run_pipeline(state, rated_qids, ratings, mode, n, exclude=None)
 
 
+def suggest_owner(state: AppState, n: int = 10) -> list[dict]:
+    """Films à proposer en priorité à la notation (apprentissage actif).
+
+    Échantillonnage du point le plus éloigné (``model.active.suggest_to_rate``)
+    sur les embeddings de l'état, en excluant les films déjà notés par le
+    propriétaire. Lève ArtifactMissing si les embeddings ou le catalogue sont
+    absents.
+
+    Renvoie une liste de {"qid", "label"} (au plus ``n`` éléments).
+    """
+    if state.emb is None or state.items is None:
+        raise ArtifactMissing(
+            "Embeddings indisponibles : impossible de proposer des films à noter."
+        )
+
+    from movreco.model import active
+
+    rated_qids = state.rated["qid"].tolist() if state.rated is not None else []
+    popularity = None
+    if "popularity" in state.items.columns:
+        popularity = (
+            pd.to_numeric(state.items["popularity"], errors="coerce").fillna(0).to_numpy()
+        )
+    lambda_pop = float((state.cfg.get("active", {}) or {}).get("lambda_pop", 0.0) or 0.0)
+
+    suggestions = active.suggest_to_rate(
+        state.emb,
+        state.items["qid"].tolist(),
+        rated_qids,
+        n=n,
+        popularity=popularity,
+        lambda_pop=lambda_pop,
+    )
+    label_by_qid = dict(zip(state.items["qid"], state.items["label"]))
+    return [
+        {"qid": str(qid), "label": str(label_by_qid.get(qid, ""))}
+        for qid in suggestions
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Exceptions métier (traduites en HTTPException par la couche app)
 # --------------------------------------------------------------------------- #
