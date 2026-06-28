@@ -563,5 +563,27 @@ def evaluate():
     rprint(f"[green]{ev.format_metric('NDCG@k (split temporel)', ndcg)}[/green]")
 
 
+@app.command(name="import-ratings")
+def import_ratings_cmd(
+    source: Path = typer.Argument(..., help="Export a convertir (Letterboxd / IMDb / CSV title,year,rating)"),
+    out: Path = typer.Option(Path("data/input/ratings.csv"), help="Fichier de sortie movreco"),
+):
+    """Convertit un export de notes (Letterboxd, IMDb, CSV) en data/input/ratings.csv."""
+    from movreco.ingest.import_ratings import import_ratings
+
+    if not source.exists():
+        rprint(f"[red]Fichier introuvable :[/red] {source}")
+        raise typer.Exit(1)
+    try:
+        df = import_ratings(source, out)
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    n_dropped = int(df.attrs.get("n_dropped", 0))
+    if n_dropped:
+        rprint(f"[yellow]{n_dropped} ligne(s) sans note valide ecartee(s).[/yellow]")
+    rprint(f"[green]{len(df)} films importes dans {out}[/green]")
+
+
 if __name__ == "__main__":
     app()

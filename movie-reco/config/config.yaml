@@ -11,8 +11,11 @@ matching:
   fuzzy_threshold: 86        # score rapidfuzz minimal pour accepter un appariement
 
 embeddings:
-  model: paraphrase-multilingual-MiniLM-L12-v2   # multilingue, adapte au francais
+  backend: auto              # auto = sentence-transformers si dispo, sinon repli tfidf (sans torch)
+  model: paraphrase-multilingual-MiniLM-L12-v2   # multilingue, adapte au francais (backend sentence-transformers)
   batch_size: 64
+  tfidf_dim: 256            # dimension de la reduction SVD du backend tfidf (sans torch)
+  tfidf_max_features: 50000 # vocabulaire max du backend tfidf
 
 synopsis:
   full_text: true            # true = article Wikipedia complet, false = lead (resume) seul

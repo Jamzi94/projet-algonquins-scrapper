@@ -21,6 +21,21 @@ cp data/input/ratings.example.csv data/input/ratings.csv
 ```
 Format : `title,year,rating` (échelle au choix, ex. 0-10 ; reste cohérent).
 
+Tu as déjà une liste ailleurs ? Importe ton export **Letterboxd** ou **IMDb**
+(ou tout CSV `title,year,rating`) — la conversion est automatique :
+```bash
+movreco import-ratings chemin/vers/export.csv      # -> data/input/ratings.csv
+```
+(Il s'agit de tes propres notes, utilisées comme entrée locale ; aucune base
+IMDb/MovieLens n'est intégrée au produit.)
+
+### Embeddings sans GPU/torch (mode léger)
+Par défaut `embeddings.backend: auto` : si `sentence-transformers` est installé il
+est utilisé, sinon repli automatique sur un backend **TF-IDF** (scikit-learn, sans
+torch ni téléchargement). Pour forcer le mode léger, mets `embeddings.backend: tfidf`
+dans `config/config.yaml`. Le pipeline tourne ainsi même hors-ligne (sur les titres
+si les synopsis ne sont pas disponibles).
+
 ## Pipeline
 ```bash
 movreco ingest                 # apparie ta liste a Wikidata + construit le catalogue

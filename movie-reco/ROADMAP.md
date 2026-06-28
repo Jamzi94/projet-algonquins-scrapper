@@ -11,8 +11,11 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 
 ## Phase 0 — Préparation
 - [ ] Copier `data/input/ratings.example.csv` en `data/input/ratings.csv` et y mettre ta vraie liste (colonnes : title, year, rating).
+- [x] Importer une liste existante : `movreco import-ratings <export>` (Letterboxd / IMDb / CSV générique) -> `data/input/ratings.csv`.
 - [ ] Choisir l'échelle de notes et la garder cohérente (ex. 0-10 avec décimales, ou 0-100).
 - [ ] `pip install -e ".[dev]"` puis `pytest -q` (les tests des fonctions pures doivent passer).
+- [x] Embeddings sans torch : backend `tfidf` (scikit-learn) + `embeddings.backend: auto` (repli automatique) — permet de tourner hors-ligne / sans GPU.
+- Réseau requis pour l'ingestion réelle : autoriser `query.wikidata.org` et `*.wikipedia.org` dans la politique réseau de l'environnement (cf. docs Claude Code).
 
 ## Phase 1 — MVP embeddings (retrieval)
 - [ ] `movreco ingest` : vérifier le taux d'appariement, corriger `matching_report.csv` à la main si besoin.
