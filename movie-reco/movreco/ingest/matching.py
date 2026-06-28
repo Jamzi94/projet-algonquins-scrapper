@@ -20,6 +20,43 @@ def normalize_title(s: str) -> str:
     return s
 
 
+def _candidate_titles(cand: dict) -> list[str]:
+    """Liste des titres candidats à comparer : filmLabel, title (P1476), altLabels.
+
+    Les champs ``title`` et ``altLabels`` (renvoyés par wikidata.lookup_film) sont
+    OPTIONNELS : leur absence reproduit le comportement historique (seul filmLabel
+    était comparé). Les agrégats GROUP_CONCAT sont éclatés sur le séparateur '|'.
+    """
+    titles: list[str] = []
+    label = cand.get("filmLabel")
+    if label:
+        titles.append(label)
+    for key in ("title", "altLabels"):
+        raw = cand.get(key)
+        if not raw:
+            continue
+        for part in str(raw).split("|"):
+            part = part.strip()
+            if part:
+                titles.append(part)
+    return titles
+
+
+def best_title_score(norm_user_title: str, cand: dict) -> float:
+    """Meilleur score fuzzy entre le titre utilisateur (déjà normalisé) et le candidat.
+
+    Compare ``norm_user_title`` à chacun des titres du candidat (filmLabel, titre
+    officiel P1476, chaque altLabel), chacun normalisé via :func:`normalize_title`,
+    et renvoie le score maximal (0.0 si aucun titre exploitable).
+    """
+    best = 0.0
+    for title in _candidate_titles(cand):
+        score = fuzz.token_sort_ratio(norm_user_title, normalize_title(title))
+        if score > best:
+            best = score
+    return float(best)
+
+
 def _qid(uri: str | None) -> str | None:
     return uri.rsplit("/", 1)[-1] if uri else None
 
@@ -59,7 +96,7 @@ def match_ratings(ratings: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         best, best_score = None, -1.0
         norm_title = normalize_title(title)
         for cand in candidates:
-            score = fuzz.token_sort_ratio(norm_title, normalize_title(cand.get("filmLabel", "")))
+            score = best_title_score(norm_title, cand)
             cand_year = _as_int_year(_year(cand.get("date")))
             if user_year is not None and cand_year is not None:
                 if abs(cand_year - user_year) <= 1:

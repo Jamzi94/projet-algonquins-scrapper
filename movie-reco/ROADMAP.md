@@ -16,10 +16,10 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 
 ## Phase 1 — MVP embeddings (retrieval)
 - [ ] `movreco ingest` : vérifier le taux d'appariement, corriger `matching_report.csv` à la main si besoin.
-- [ ] Améliorer `ingest/matching.py` : gérer titres localisés (P1476/altLabels), seuil adaptatif, désambiguïsation par année stricte.
+- [x] Améliorer `ingest/matching.py` : gérer titres localisés (P1476/altLabels), seuil adaptatif, désambiguïsation par année stricte.
 - [x] `movreco synopsis` : passer du résumé (lead) au texte complet via l'API `action=query&prop=extracts&explaintext` pour des embeddings plus riches.
 - [ ] `movreco embed` puis `movreco recommend --mode mvp` : revue qualitative du top-N.
-- [ ] Régler `recommend.candidates`, `mmr_lambda`, `popularity_penalty` dans `config.yaml`.
+- [x] Outil de tuning : `movreco tune` balaie une grille (`mmr_lambda`, `serendipity`, `popularity_penalty`, `candidates`) et classe par recall@k (`recommend/tuning.py`, bloc `tune` de `config.yaml`). Reporter les réglages gagnants dans `recommend`.
 
 ## Phase 2 — Couche hybride (préférence supervisée)
 - [x] `movreco features` : enrichir les features structurées (acteurs P161, mots-clés, durée, langue).
@@ -36,7 +36,8 @@ normalisation de la popularité, re-rank LLM fiabilisé, validation du CSV de no
 
 ## Phase 4 — Option LLM
 - [ ] Activer `llm.enabled` dans `config.yaml`, renseigner `ANTHROPIC_API_KEY` dans `.env`.
-- [ ] Fiabiliser le mapping index/explication dans `cli.recommend` après re-ranking LLM.
+- [x] Fiabiliser le mapping index/explication dans `cli.recommend` après re-ranking LLM.
+- [x] Couche LLM fiabilisée : parsing JSON robuste (1er tableau valide, même entouré de texte/Markdown), injection d'un `client` pour les tests, désactivation par défaut. Option `explain` exposée par `POST /recommend` (champ `raison`).
 
 ## Conformité (permanent)
 - [ ] Vérifier qu'aucune source interdite n'est entrée dans le produit (voir `.claude/rules/data-sources.md`).

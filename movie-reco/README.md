@@ -31,6 +31,7 @@ movreco train                  # entraine le modele de preference (mode hybride)
 movreco recommend --mode hybrid   # ou --mode mvp pour la version embeddings seule
 movreco suggest --n 10         # films a noter en priorite (apprentissage actif)
 movreco evaluate               # MAE leave-one-out + NDCG@k (split temporel)
+movreco tune                   # balaie une grille d'hyperparametres (recall@k)
 ```
 Artefacts dans `data/processed/` et `models/`. Vérifie `data/processed/matching_report.csv`
 après l'ingestion (l'appariement titre/année est imparfait).
@@ -76,6 +77,24 @@ popularité pour rester sur des films plus connus.
   classement sur les plus récents). Réglable via `evaluate.ndcg_k` et
   `evaluate.holdout_frac` ; affiché « indisponible » si trop peu de films notés.
 
+### Tuning des hyperparamètres
+`movreco tune` balaie une grille d'hyperparamètres de recommandation pour trouver les
+réglages qui maximisent le **recall@k**. Le principe : on cache une fraction des films
+**aimés** (notes au-dessus de la médiane), on relance le pipeline sur le reste, puis on
+mesure combien des films cachés reviennent dans le top-k (recall@k) et leur qualité de
+classement (ndcg@k). Chaque combinaison de la grille est évaluée puis le tableau est
+classé par recall@k décroissant.
+
+```bash
+movreco tune                       # grille de config.yaml (bloc tune)
+movreco tune --k 10 --holdout 0.3  # surcharge k et la fraction cachée
+```
+
+La grille se règle dans `config.yaml`, bloc `tune.grid` (`mmr_lambda`, `serendipity`,
+`popularity_penalty`, `candidates`) ; `tune.k` et `tune.holdout_frac` fixent les valeurs
+par défaut. Si le bloc est absent, une grille par défaut raisonnable est utilisée. Les
+réglages gagnants peuvent ensuite être reportés dans le bloc `recommend` de la config.
+
 ## API
 
 Le moteur est exposable en service HTTP via **FastAPI**. Idée maîtresse : `POST /recommend`
@@ -101,7 +120,10 @@ Documentation interactive auto-générée (Swagger) : http://127.0.0.1:8000/docs
 - `GET /movies/{qid}/similar?n=10` — films voisins par similarité cosinus des embeddings.
 - `POST /recommend` — recommandations à partir de notes fournies dans le corps (stateless).
   Mode `mvp` par défaut ; `hybrid` se replie sur `mvp` si aucun modèle n'est chargé
-  (le champ `mode` de la réponse reflète le mode réellement utilisé).
+  (le champ `mode` de la réponse reflète le mode réellement utilisé). Champ optionnel
+  `explain: true` : si la couche LLM est activée (`llm.enabled`), une justification
+  textuelle est attachée à chaque résultat (champ optionnel `raison`). Sans `llm.enabled`,
+  l'option est ignorée silencieusement (aucune erreur, pas de `raison`).
 - `GET /recommend?mode=hybrid&n=10` — recommandations à partir des notes persistées du
   propriétaire (`rated.parquet`).
 - `GET /suggest?n=10` — films à noter en priorité (apprentissage actif) : couvre l'espace
@@ -119,7 +141,8 @@ curl -X POST http://127.0.0.1:8000/recommend \
         ],
         "mode": "mvp",
         "n": 10,
-        "exclude": []
+        "exclude": [],
+        "explain": false
       }'
 ```
 

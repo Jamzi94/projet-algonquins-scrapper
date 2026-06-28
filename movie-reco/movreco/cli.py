@@ -415,6 +415,107 @@ def suggest(
     rprint(table)
 
 
+# Grille de tuning par defaut si cfg["tune"]["grid"] est absent. Garde des plages
+# raisonnables tout en restant rapide a balayer.
+_DEFAULT_TUNE_GRID: dict = {
+    "mmr_lambda": [0.3, 0.5, 0.7, 0.9],
+    "serendipity": [0.0, 0.1, 0.2, 0.3],
+    "popularity_penalty": [0.0, 0.15, 0.3],
+    "candidates": [200, 400],
+}
+
+
+_TUNE_METRIC_KEYS = {"recall_at_k", "ndcg_at_k", "n_holdout"}
+
+
+def _row_params(row: dict) -> dict:
+    """Extrait les parametres d'une ligne de sweep.
+
+    Tolerant au format renvoye par tuning.sweep : soit un sous-dict "params",
+    soit les parametres fusionnes au meme niveau que les metriques.
+    """
+    if isinstance(row.get("params"), dict):
+        return row["params"]
+    return {k: v for k, v in row.items() if k not in _TUNE_METRIC_KEYS}
+
+
+def _fmt_params(params: dict) -> str:
+    """Formate les parametres d'une combinaison pour affichage compact."""
+    return ", ".join(f"{k}={params[k]}" for k in sorted(params))
+
+
+@app.command()
+def tune(
+    k: int = typer.Option(0, help="k du recall@k / ndcg@k (0 = valeur de config)"),
+    holdout: float = typer.Option(
+        -1.0, help="fraction des films aimes cachee (negatif = valeur de config)"
+    ),
+):
+    """Balaie une grille d'hyperparametres et classe par recall@k.
+
+    Cache une fraction des films AIMES, relance le pipeline sur le reste et mesure
+    recall@k / ndcg@k pour chaque combinaison de la grille (cfg["tune"]["grid"],
+    grille par defaut si absente).
+    """
+    from movreco.recommend import tuning
+
+    cfg = _cfg()
+    P = paths(cfg)
+
+    items = pd.read_parquet(P["items"])
+    emb = _load_aligned_emb(P, items)
+    structured = pd.read_parquet(P["structured"]) if P["structured"].exists() else None
+    if not P["rated"].exists():
+        rprint("[red]Aucune note persistee : lance d'abord 'movreco ingest'.[/red]")
+        raise typer.Exit(1)
+    rated = pd.read_parquet(P["rated"])
+    rated_qids = rated["qid"].tolist()
+    ratings = rated["rating"].values.astype(float)
+
+    tune_cfg = cfg.get("tune", {}) or {}
+    grid = tune_cfg.get("grid") or _DEFAULT_TUNE_GRID
+    eff_k = int(k) if k else int(tune_cfg.get("k", 10))
+    eff_holdout = (
+        float(holdout) if holdout >= 0.0 else float(tune_cfg.get("holdout_frac", 0.3))
+    )
+
+    rprint(
+        f"[cyan]Balayage de la grille (k={eff_k}, holdout={eff_holdout})...[/cyan]"
+    )
+    results = tuning.sweep(
+        items,
+        emb,
+        structured,
+        rated_qids,
+        ratings,
+        grid,
+        cfg,
+        k=eff_k,
+        holdout_frac=eff_holdout,
+    )
+
+    if not results:
+        rprint("[yellow]Aucun resultat (grille vide ou trop peu de notes).[/yellow]")
+        return
+
+    table = Table(title=f"Tuning — classe par recall@{eff_k}")
+    table.add_column("#", justify="right")
+    table.add_column("Parametres")
+    table.add_column(f"recall@{eff_k}", justify="right")
+    table.add_column(f"ndcg@{eff_k}", justify="right")
+    for i, row in enumerate(results):
+        params = _row_params(row)
+        recall = row.get("recall_at_k", float("nan"))
+        ndcg = row.get("ndcg_at_k", float("nan"))
+        table.add_row(
+            str(i + 1),
+            _fmt_params(params),
+            f"{recall:.3f}",
+            f"{ndcg:.3f}",
+        )
+    rprint(table)
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", help="Adresse d'écoute"),

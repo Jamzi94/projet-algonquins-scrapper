@@ -266,18 +266,65 @@ def _run_pipeline(
     return effective, out
 
 
+def _attach_reasons(
+    state: AppState,
+    results: list[dict],
+    rated_qids: list[str],
+    ratings: list[float],
+) -> list[dict]:
+    """Attache une raison LLM à chaque résultat (champ "raison"), si possible.
+
+    Appelle ``rerank.rerank_and_explain`` (client par défaut, donc création
+    paresseuse selon la config) avec les titres aimés et les labels recommandés.
+    L'index renvoyé par le LLM pointe dans la liste des recommandations : on
+    associe chaque raison à la position correspondante SANS réordonner les
+    résultats (l'API attache des raisons, elle ne re-classe pas). Tolérant :
+    toute défaillance laisse les résultats inchangés (pas de "raison").
+    """
+    if not results:
+        return results
+
+    from movreco.llm import rerank
+
+    # Titres aimés, des mieux notés aux moins bien notés (contexte du prompt).
+    label_by_qid = dict(zip(state.items["qid"], state.items["label"]))
+    order = np.argsort(-np.asarray(ratings, dtype=float))
+    liked = [label_by_qid.get(rated_qids[i]) for i in order]
+    liked = [t for t in liked if t]
+
+    reco_labels = [r["label"] for r in results]
+    explained = rerank.rerank_and_explain(liked, reco_labels, state.cfg)
+    if not explained:
+        return results
+
+    n_pos = len(results)
+    for o in explained:
+        idx = o.get("index")
+        if isinstance(idx, bool) or not isinstance(idx, int):
+            continue
+        if 0 <= idx < n_pos:
+            raison = o.get("raison", "")
+            results[idx]["raison"] = raison if isinstance(raison, str) else str(raison)
+    return results
+
+
 def recommend_from_ratings(
     state: AppState,
     ratings: list[dict],
     mode: str = "mvp",
     n: int = 10,
     exclude: list[str] | None = None,
+    explain: bool = False,
 ) -> tuple[str, list[dict]]:
     """Recommande à partir de notes fournies par le client (stateless).
 
     `ratings` : liste de {"qid", "rating"}. On filtre aux qids présents dans le
     catalogue. Lève ArtifactMissing si les embeddings ne sont pas chargés,
     InvalidRequest si aucune note valide.
+
+    Si ``explain`` est vrai ET ``cfg.llm.enabled``, attache une raison LLM à
+    chaque recommandation (champ "raison"). Sans ``llm.enabled``, l'option est
+    ignorée silencieusement (aucune erreur).
     """
     if state.emb is None or state.items is None:
         raise ArtifactMissing(
@@ -296,7 +343,12 @@ def recommend_from_ratings(
     if not valid_qids:
         raise InvalidRequest("Aucun film noté ne correspond au catalogue.")
 
-    return _run_pipeline(state, valid_qids, valid_ratings, mode, n, exclude)
+    effective, results = _run_pipeline(
+        state, valid_qids, valid_ratings, mode, n, exclude
+    )
+    if explain and (state.cfg.get("llm", {}) or {}).get("enabled"):
+        results = _attach_reasons(state, results, valid_qids, valid_ratings)
+    return effective, results
 
 
 def recommend_owner(

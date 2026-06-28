@@ -23,6 +23,7 @@ PREFIX bd: <http://www.bigdata.com/rdf#>
 PREFIX mwapi: <https://www.mediawiki.org/ontology#API/>
 PREFIX schema: <http://schema.org/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 """
 
 FILM_QID = "Q11424"  # entité "film" dans Wikidata
@@ -144,11 +145,24 @@ def _sparql_literal(value: str) -> str:
 
 
 def lookup_film(title: str, cfg: dict, limit: int = 12) -> list[dict]:
-    """Cherche des films Wikidata correspondant à un titre (via l'API EntitySearch)."""
+    """Cherche des films Wikidata correspondant à un titre (via l'API EntitySearch).
+
+    En plus de ?filmLabel, deux champs OPTIONNELS sont renvoyés pour faciliter
+    l'appariement des titres localisés ou originaux :
+      - ?title : titre officiel (wdt:P1476), agrégé par GROUP_CONCAT (un film peut
+        porter plusieurs titres officiels, p.ex. plusieurs langues) ;
+      - ?altLabels : noms alternatifs (skos:altLabel) dans la langue configurée et
+        en anglais, agrégés (GROUP_CONCAT DISTINCT) et séparés par '|'.
+    Ces clés peuvent être absentes/vides si le film ne déclare pas ces valeurs.
+    """
     safe = _sparql_literal(title)
     lang = _sparql_literal(cfg.get("language", "fr"))
     query = PREFIXES + f"""
-    SELECT ?film ?filmLabel ?imdb ?date WHERE {{
+    SELECT ?film ?filmLabel ?imdb
+           (SAMPLE(?date) AS ?date)
+           (GROUP_CONCAT(DISTINCT ?ti; separator="|") AS ?title)
+           (GROUP_CONCAT(DISTINCT ?al; separator="|") AS ?altLabels)
+    WHERE {{
       SERVICE wikibase:mwapi {{
         bd:serviceParam wikibase:api "EntitySearch" .
         bd:serviceParam wikibase:endpoint "www.wikidata.org" .
@@ -159,8 +173,15 @@ def lookup_film(title: str, cfg: dict, limit: int = 12) -> list[dict]:
       ?film wdt:P31 wd:{FILM_QID} .
       OPTIONAL {{ ?film wdt:P577 ?date . }}
       OPTIONAL {{ ?film wdt:P345 ?imdb . }}
+      OPTIONAL {{ ?film wdt:P1476 ?ti . }}
+      OPTIONAL {{
+        ?film skos:altLabel ?al .
+        FILTER(lang(?al) = "{lang}" || lang(?al) = "en")
+      }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
-    }} LIMIT {limit}
+    }}
+    GROUP BY ?film ?filmLabel ?imdb
+    LIMIT {limit}
     """
     return run_sparql(query, cfg)
 

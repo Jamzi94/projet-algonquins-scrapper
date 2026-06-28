@@ -113,7 +113,11 @@ def create_app(cfg: dict | None = None) -> "FastAPI":
     # ----------------------------------------------------------------------- #
     # /movies/{qid}/similar (voisins cosinus)
     # ----------------------------------------------------------------------- #
-    @app.get("/movies/{qid}/similar", response_model=schemas.SimilarResponse)
+    @app.get(
+        "/movies/{qid}/similar",
+        response_model=schemas.SimilarResponse,
+        response_model_exclude_none=True,
+    )
     def movie_similar(
         qid: str,
         n: int = Query(default=10, ge=1, description="Nombre de voisins souhaités."),
@@ -129,7 +133,13 @@ def create_app(cfg: dict | None = None) -> "FastAPI":
     # ----------------------------------------------------------------------- #
     # POST /recommend (stateless : notes du client)
     # ----------------------------------------------------------------------- #
-    @app.post("/recommend", response_model=schemas.RecommendResponse)
+    @app.post(
+        "/recommend",
+        response_model=schemas.RecommendResponse,
+        # raison est optionnel : on l'omet du JSON quand il est None pour garder
+        # un contrat strictement identique aux clients existants (rétro-compat).
+        response_model_exclude_none=True,
+    )
     def post_recommend(req: schemas.RecommendRequest) -> schemas.RecommendResponse:
         ratings = [{"qid": r.qid, "rating": r.rating} for r in req.ratings]
         try:
@@ -139,6 +149,7 @@ def create_app(cfg: dict | None = None) -> "FastAPI":
                 mode=req.mode,
                 n=req.n,
                 exclude=req.exclude,
+                explain=req.explain,
             )
         except service.ArtifactMissing as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -149,7 +160,11 @@ def create_app(cfg: dict | None = None) -> "FastAPI":
     # ----------------------------------------------------------------------- #
     # GET /recommend (notes persistées du propriétaire)
     # ----------------------------------------------------------------------- #
-    @app.get("/recommend", response_model=schemas.RecommendResponse)
+    @app.get(
+        "/recommend",
+        response_model=schemas.RecommendResponse,
+        response_model_exclude_none=True,
+    )
     def get_recommend(
         mode: schemas.ModeEnum = Query(
             default=schemas.ModeEnum.hybrid, description="Mode de scoring demandé."

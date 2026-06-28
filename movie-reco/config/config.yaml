@@ -39,6 +39,18 @@ evaluate:
   ndcg_k: 10                # k du NDCG@k sur le split temporel
   holdout_frac: 0.3         # fraction des films les plus recents reservee a l'evaluation
 
+tune:
+  # Grille d'hyperparametres balayee par `movreco tune` (recommend/tuning.sweep).
+  # Chaque combinaison cache une fraction des films AIMES, relance le pipeline sur
+  # le reste et mesure recall@k / ndcg@k.
+  grid:
+    mmr_lambda: [0.3, 0.5, 0.7, 0.9]       # 1.0 = pertinence pure, 0.0 = diversite pure
+    serendipity: [0.0, 0.1, 0.2, 0.3]      # fraction du top-N reservee a la nouveaute
+    popularity_penalty: [0.0, 0.15, 0.3]   # de-biais des blockbusters
+    candidates: [200, 400]                  # nb de candidats FAISS avant re-ranking
+  k: 10                     # k du recall@k / ndcg@k
+  holdout_frac: 0.3         # fraction des films aimes cachee pour l'evaluation
+
 cache:
   enabled: true             # met en cache les appels Wikidata/Wikipedia sur disque
   dir: data/cache           # dossier de cache (relatif a la racine du projet si non absolu)

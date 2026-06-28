@@ -49,6 +49,13 @@ class RecommendRequest(BaseModel):
     exclude: list[str] = Field(
         default_factory=list, description="qids à exclure des résultats."
     )
+    explain: bool = Field(
+        False,
+        description=(
+            "Si vrai ET llm.enabled, attache une raison (champ 'raison') à chaque "
+            "recommandation via la couche LLM. Ignoré silencieusement sinon."
+        ),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -75,11 +82,18 @@ class MovieDetail(BaseModel):
 
 
 class ScoredMovie(BaseModel):
-    """Film accompagné de son score (recommandation ou similarité)."""
+    """Film accompagné de son score (recommandation ou similarité).
+
+    ``raison`` est une justification optionnelle (couche LLM) ; absente par
+    défaut, donc rétro-compatible avec les clients existants.
+    """
 
     qid: str
     label: str
     score: float
+    raison: str | None = Field(
+        default=None, description="Justification LLM optionnelle (si explain demandé)."
+    )
 
 
 class QueryMovie(BaseModel):
