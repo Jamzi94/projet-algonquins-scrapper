@@ -187,31 +187,24 @@ def lookup_film(title: str, cfg: dict, limit: int = 12) -> list[dict]:
 
 
 def fetch_catalog_by_year(year: int, cfg: dict) -> list[dict]:
-    """Récupère les films d'une année donnée avec leurs métadonnées agrégées."""
+    """Découverte LÉGÈRE des films d'une année (qid, titre, date, popularité).
+
+    Volontairement légère : pas d'agrégats multi-valués (genres, acteurs, mots-clés…).
+    Une requête par année qui agrège acteurs/mots-clés sur tout un millésime sature
+    le service public Wikidata (timeouts). Les métadonnées riches sont récupérées
+    ensuite, par lots de QID, via :func:`fetch_items_metadata` (requêtes indexées,
+    bien plus rapides). On garde le tri par popularité pour une troncature utile.
+    """
     lang = cfg.get("language", "fr")
     maxn = cfg["catalog"].get("max_per_year", 1500)
     query = PREFIXES + f"""
     SELECT ?film ?filmLabel ?imdb
            (SAMPLE(?date) AS ?date)
            (SAMPLE(?sl) AS ?popularity)
-           (GROUP_CONCAT(DISTINCT ?g; separator="|") AS ?genres)
-           (GROUP_CONCAT(DISTINCT ?d; separator="|") AS ?directors)
-           (GROUP_CONCAT(DISTINCT ?c; separator="|") AS ?countries)
-           (GROUP_CONCAT(DISTINCT ?a; separator="|") AS ?cast)
-           (GROUP_CONCAT(DISTINCT ?k; separator="|") AS ?keywords)
-           (GROUP_CONCAT(DISTINCT ?lg; separator="|") AS ?languages)
-           (SAMPLE(?dur) AS ?duration)
     WHERE {{
       ?film wdt:P31 wd:{FILM_QID} ; wdt:P577 ?date .
       FILTER(YEAR(?date) = {int(year)})
       OPTIONAL {{ ?film wikibase:sitelinks ?sl . }}
-      OPTIONAL {{ ?film wdt:P136 ?gi . ?gi rdfs:label ?g . FILTER(lang(?g)="{lang}") }}
-      OPTIONAL {{ ?film wdt:P57 ?di . ?di rdfs:label ?d . FILTER(lang(?d)="{lang}") }}
-      OPTIONAL {{ ?film wdt:P495 ?ci . ?ci rdfs:label ?c . FILTER(lang(?c)="{lang}") }}
-      OPTIONAL {{ ?film wdt:P161 ?ai . ?ai rdfs:label ?a . FILTER(lang(?a)="{lang}") }}
-      OPTIONAL {{ ?film wdt:P921 ?ki . ?ki rdfs:label ?k . FILTER(lang(?k)="{lang}") }}
-      OPTIONAL {{ ?film wdt:P364 ?lgi . ?lgi rdfs:label ?lg . FILTER(lang(?lg)="{lang}") }}
-      OPTIONAL {{ ?film wdt:P2047 ?dur . }}
       OPTIONAL {{ ?film wdt:P345 ?imdb . }}
       SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
     }}
@@ -226,7 +219,9 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
     """Récupère les métadonnées d'un ensemble de films identifiés par leur QID."""
     lang = cfg.get("language", "fr")
     out: list[dict] = []
-    for batch in _chunks(list(qids), 150):
+    # Lots volontairement modestes : la requête porte des agrégats lourds
+    # (acteurs P161, mots-clés P921), coûteux au-delà de quelques dizaines de films.
+    for batch in _chunks(list(qids), 50):
         values = " ".join(f"wd:{q}" for q in batch)
         query = PREFIXES + f"""
         SELECT ?film ?filmLabel ?imdb

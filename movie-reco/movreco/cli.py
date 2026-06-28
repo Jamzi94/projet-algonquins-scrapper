@@ -131,21 +131,27 @@ def ingest(
     n_ok = int(matched["qid"].notna().sum())
     rprint(f"[green]{n_ok}/{len(matched)} apparies.[/green]")
 
+    # 1) Decouverte LEGERE du catalogue (qid + popularite), une requete/annee.
     y0 = int(cfg["catalog"]["year_min"])
     y1 = int(cfg["catalog"]["year_max"])
-    rows: list[dict] = []
+    discovered: list[str] = []
     for year in range(y0, y1 + 1):
         rprint(f"  catalogue {year}...")
         try:
-            rows.extend(wikidata.fetch_catalog_by_year(year, cfg))
+            for row in wikidata.fetch_catalog_by_year(year, cfg):
+                qid = (row.get("film") or "").rsplit("/", 1)[-1]
+                if qid:
+                    discovered.append(qid)
         except Exception as exc:  # tolérant aux timeouts ponctuels
             rprint(f"[yellow]  annee {year} ignoree : {exc}[/yellow]")
-    catalog = _normalize_catalog(pd.DataFrame(rows))
 
+    # 2) Enrichissement RICHE par lots de QID (genres, acteurs, mots-cles, duree,
+    #    langue) : requetes indexees, bien plus rapides qu'un agregat par annee.
     rated_qids = matched.dropna(subset=["qid"])["qid"].tolist()
-    rated_meta = _normalize_catalog(pd.DataFrame(wikidata.fetch_items_metadata(rated_qids, cfg))) if rated_qids else _normalize_catalog(pd.DataFrame())
-
-    items = pd.concat([catalog, rated_meta], ignore_index=True)
+    all_qids = list(dict.fromkeys(discovered + rated_qids))  # unique, ordre stable
+    rprint(f"[cyan]Enrichissement des metadonnees de {len(all_qids)} films...[/cyan]")
+    meta_rows = wikidata.fetch_items_metadata(all_qids, cfg) if all_qids else []
+    items = _normalize_catalog(pd.DataFrame(meta_rows))
     items = items.dropna(subset=["qid"]).drop_duplicates(subset=["qid"]).reset_index(drop=True)
 
     P["items"].parent.mkdir(parents=True, exist_ok=True)
