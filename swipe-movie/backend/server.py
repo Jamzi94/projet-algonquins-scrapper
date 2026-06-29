@@ -34,6 +34,10 @@ def _tmdb():
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("swipenight")
+# httpx loggue l'URL COMPLÈTE de chaque requête en INFO — ce qui expose la clé
+# TMDB (api_key=... dans l'URL) dans les logs. On limite httpx aux warnings+.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 app = FastAPI(title="SwipeNight API")
 api = APIRouter(prefix="/api")
