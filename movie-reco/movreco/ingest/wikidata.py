@@ -221,7 +221,7 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
     out: list[dict] = []
     # Lots volontairement modestes : la requête porte des agrégats lourds
     # (acteurs P161, mots-clés P921), coûteux au-delà de quelques dizaines de films.
-    for batch in _chunks(list(qids), 50):
+    for batch in _chunks(list(qids), 40):
         values = " ".join(f"wd:{q}" for q in batch)
         query = PREFIXES + f"""
         SELECT ?film ?filmLabel ?imdb
@@ -252,7 +252,17 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
         }}
         GROUP BY ?film ?filmLabel ?imdb
         """
-        out.extend(run_sparql(query, cfg))
+        try:
+            out.extend(run_sparql(query, cfg))
+        except Exception as exc:  # noqa: BLE001 - tolérance volontaire
+            # Un lot qui échoue (timeout SPARQL ponctuel sur les agrégats lourds)
+            # ne doit PAS faire échouer tout l'enrichissement : on saute ce lot.
+            # Les films concernés sont simplement absents du catalogue final
+            # (comportement déjà adopté par la découverte par année).
+            import logging
+            logging.getLogger("movreco").warning(
+                "Métadonnées : lot de %d films ignoré (%s)", len(batch), exc
+            )
     return out
 
 
