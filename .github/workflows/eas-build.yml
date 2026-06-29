@@ -76,7 +76,9 @@ jobs:
         run: npm ci
 
       - name: Lier le projet EAS (idempotent)
-        run: eas init --non-interactive
+        # --force : lève l'ambiguïté quand le token a accès à plusieurs comptes
+        # (le compte/owner cible est fixé via "owner" dans app.json).
+        run: eas init --non-interactive --force
 
       - name: Lancer le build EAS (cloud)
         run: |
