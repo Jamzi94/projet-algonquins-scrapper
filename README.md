@@ -11,24 +11,125 @@ L'app **délègue ses recommandations au moteur movie-reco** (via un « pont »)
 
 ---
 
-## 1. Vue d'ensemble (comment tout s'enchaîne)
+## 0. Démarrage rapide
 
-```
-Wikidata (CC0) ─┐                          ┌─ TMDB (affiches, dates, synopsis, notes) [optionnel]
-Wikipédia ──────┤                          │
-                ▼                          ▼
-   movie-reco : ingest → synopsis → embed(tf-idf) → FAISS
-                          (catalogue + embeddings)
-                                  │
-                  recommender_bridge.py (le « pont »)
-                                  ▼
-   swipe-movie/backend (FastAPI)  ──►  MongoDB (comptes, swipes, rooms, catalogue servi)
-                                  ▼
-   swipe-movie/frontend (Expo « CineFeel »)  ──►  APK Android / Web (SPA)
+### Backend seul (sandbox — aucune clé requise)
+
+```bash
+cd swipe-movie/backend
+pip install -r requirements-sandbox.txt
+uvicorn server:app --reload --port 8000
+# → http://localhost:8000/api/provider-status
 ```
 
-- **Reco individuelle** : swipes de l'utilisateur → notes → *vecteur de goût* → recherche FAISS + diversité (MMR) + sérendipité.
-- **Reco de groupe (rooms)** : `group_score` combine les goûts des membres.
+> Sans `MONGO_URL`, le backend tourne en Mongo **en mémoire** (données volatiles). Voir `SANDBOX.md`.
+
+### Backend + moteur movie-reco
+
+```bash
+# 1. Construire le catalogue (une seule fois, ~30 min)
+cd movie-reco
+pip install -e ".[dev]"
+movreco ingest          # SPARQL Wikidata
+movreco synopsis        # Wikipedia REST
+movreco embed           # tf-idf → embeddings.npy
+movreco features        # features structurées → structured.parquet
+
+# 2. Lancer le backend (il détecte movie-reco automatiquement)
+cd ../swipe-movie/backend
+DATA_SOURCE=wikidata uvicorn server:app --reload --port 8000
+```
+
+### App mobile (APK Android)
+
+```bash
+# Pré-requis : compte Expo (expo.dev) + token EAS
+cd swipe-movie/frontend
+npm install
+EXPO_PUBLIC_BACKEND_URL=https://votre-backend.onrender.com \
+  npx eas build --platform android --profile preview
+# → télécharge l'APK depuis expo.dev une fois le build terminé
+```
+
+### Variables d'environnement indispensables
+
+| Variable | Où | Valeur minimale |
+| --- | --- | --- |
+| `EXPO_PUBLIC_BACKEND_URL` | frontend / EAS | URL du backend (Render ou localhost) |
+| `JWT_SECRET` | backend | une chaîne aléatoire longue |
+| `TMDB_API_KEY` | backend (optionnel) | clé TMDB si enrichissement souhaité |
+| `MONGO_URL` | backend (optionnel) | URI Atlas ou `memory` |
+
+---
+
+## 1. Architecture — schéma complet
+
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║                        SOURCES DE DONNÉES                                ║
+╠═══════════════════╦══════════════════════════════════════════════════════╣
+║  Wikidata  (CC0)  ║  TMDB  (optionnel, toggleable, clé API requise)      ║
+║  Wikipedia (CC BY)║  → affiches · dates réelles · synopsis · notes       ║
+╚═══════════╤═══════╩═════════════════════════════════════════════════════╝
+            │ SPARQL + REST                  ▲ httpx (lazily imported)
+            ▼                                │
+┌───────────────────────────────────────────┼──────────────────────────────┐
+│                  movie-reco/              │                              │
+│  ┌──────────┐  ┌──────────┐  ┌─────────┐ │  ┌──────────────────────┐   │
+│  │  ingest  │→ │ synopsis │→ │  embed  │ │  │   features/combine   │   │
+│  │(wikidata)│  │(wikipedia│  │ tf-idf  │ │  │ structured.parquet   │   │
+│  └──────────┘  │  REST)   │  │ 256 dim │ │  │ (genres/cast/decade) │   │
+│                └──────────┘  └────┬────┘ │  └──────────┬───────────┘   │
+│                                   │      │              │               │
+│                  embeddings.npy ◄─┘      │   ┌──────────▼───────────┐   │
+│                                          │   │   recommend/index    │   │
+│                                          │   │   FAISS (IVF-PQ)     │   │
+│                                          │   │   MMR · sérendipité  │   │
+│                                          │   │   popularity penalty │   │
+│                                          │   └──────────┬───────────┘   │
+│                                          │              │               │
+│             items.parquet (10 786 films) │              │               │
+└──────────────────────────────────────────┼──────────────┼───────────────┘
+                                           │              │
+                         ┌─────────────────▼──────────────▼──────────────┐
+                         │          recommender_bridge.py                 │
+                         │          (SynergyEngine)                       │
+                         │   swipes → notes → vecteur de goût signé       │
+                         │   group_score (rooms)                          │
+                         └───────────────────┬────────────────────────────┘
+                                             │
+┌────────────────────────────────────────────▼────────────────────────────┐
+│                    swipe-movie/backend  (FastAPI)                        │
+│                                                                          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│  │  auth    │  │  swipes  │  │  rooms   │  │recommend │  │  TMDB    │  │
+│  │  JWT     │  │  états   │  │  groupe  │  │  home    │  │  covers  │  │
+│  │  bcrypt  │  │watchlist │  │  votes   │  │ contexte │  │  enrich  │  │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+│                                                                          │
+│  MongoDB (Motor async)                                                   │
+│  ├─ memory (mongomock-motor) ── dev / CI / sandbox                       │
+│  └─ Atlas URI ────────────── production (persistant)                     │
+└──────────────────────────────┬───────────────────────────────────────────┘
+                               │ REST JSON
+                               ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                 swipe-movie/frontend  (Expo / React Native)               │
+│                                                                          │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────────────┐  │
+│  │   auth     │  │  swipe     │  │   rooms    │  │  browse/watchlist  │  │
+│  │  login     │  │  home      │  │  groupe    │  │  profil/settings   │  │
+│  │  register  │  │  (FAISS)   │  │  vote      │  │  onboarding        │  │
+│  └────────────┘  └────────────┘  └────────────┘  └────────────────────┘  │
+│                                                                          │
+│       APK Android (EAS Build preview)  ·  Web SPA (expo export)          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**Flux de données clés :**
+- **Reco individuelle** : swipes de l'utilisateur → notes → *vecteur de goût signé* → FAISS (k‑NN) → MMR (diversité) + pénalité popularité + sérendipité.
+- **Reco de groupe (rooms)** : `group_score` combine les vecteurs de goût de chaque membre (vote, résultat commun).
+- **Enrichissement TMDB** : au démarrage, le backend lance `_auto_refresh_covers_bg()` — 1 appel search TMDB par film → affiche + date réelle + note + synopsis (`TMDB_ENRICH=full`).
 
 ---
 
