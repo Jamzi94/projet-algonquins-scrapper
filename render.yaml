@@ -1,0 +1,43 @@
+# Render Blueprint — backend SwipeNight (FastAPI + moteur movie-reco)
+# =============================================================================
+# Déploiement en 1 clic :
+#   Render Dashboard -> New + -> Blueprint -> connecter ce dépôt GitHub -> Apply.
+# Render lit ce fichier, crée le service web, installe les dépendances et démarre
+# uvicorn. Aucune clé externe requise (TMDB désactivé, Mongo en mémoire).
+#
+# IMPORTANT (plan gratuit) :
+#   - MONGO_URL=memory => base EN MÉMOIRE : les données (comptes, swipes) sont
+#     remises à zéro à chaque redémarrage, et le service se met en veille après
+#     ~15 min d'inactivité (1re requête ensuite = ~30-60 s de réveil).
+#   - Pour des données PERSISTANTES : crée un cluster MongoDB Atlas (gratuit) et
+#     remplace MONGO_URL par son URI (mongodb+srv://...).
+# =============================================================================
+services:
+  - type: web
+    name: swipenight-backend
+    runtime: python
+    plan: free
+    # Le backend vit dans ce sous-dossier ; le reste du dépôt (dont movie-reco,
+    # installé via -e ../../movie-reco) est cloné à côté.
+    rootDir: swipe-movie/backend
+    buildCommand: pip install -r requirements-sandbox.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    # Render vérifie que le service répond avant de le marquer "live".
+    healthCheckPath: /api/provider-status
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: MONGO_URL
+        value: memory
+      - key: DB_NAME
+        value: swipenight
+      # Catalogue Wikidata (CC0) + reco via le pont movie-reco. Mets "seed" pour
+      # le catalogue de démo, ou "tmdb" (+ TMDB_API_KEY) pour activer TMDB.
+      - key: DATA_SOURCE
+        value: wikidata
+      # TMDB désactivé : 100 % licence-clean. Passe à "true" + TMDB_API_KEY pour l'activer.
+      - key: EXTERNAL_APIS_ENABLED
+        value: "false"
+      # Secret JWT généré aléatoirement par Render (jamais en clair dans le dépôt).
+      - key: JWT_SECRET
+        generateValue: true

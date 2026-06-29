@@ -116,6 +116,35 @@ npx expo export -p web    # build web statique -> dist/
 
 ---
 
+## 4. Déployer le backend (Render, gratuit) puis rebâtir l'APK
+
+Pour que l'app **installée** (APK) joigne l'API, le backend doit être accessible
+publiquement. Le dépôt fournit un **Blueprint Render** (`render.yaml`).
+
+### a) Déployer sur Render
+
+1. Crée un compte sur <https://render.com> (gratuit) et connecte ton GitHub.
+2. **Dashboard → New + → Blueprint** → choisis ce dépôt → **Apply**.
+   Render lit `render.yaml`, installe les dépendances et démarre `uvicorn`.
+   *(Variante manuelle : New → Web Service → Root Directory `swipe-movie/backend`,
+   Build `pip install -r requirements-sandbox.txt`, Start
+   `uvicorn server:app --host 0.0.0.0 --port $PORT`.)*
+3. Au bout de quelques minutes tu obtiens une URL du type
+   `https://swipenight-backend.onrender.com`.
+4. Vérifie : ouvre `https://…onrender.com/api/provider-status` → tu dois voir
+   `"data_source":"wikidata"`.
+
+> Plan gratuit : base **en mémoire** (données remises à zéro au redémarrage) et
+> mise en veille après ~15 min d'inactivité (1re requête ensuite = ~30-60 s).
+> Pour des données persistantes, crée un **MongoDB Atlas** gratuit et mets son
+> URI dans la variable `MONGO_URL` du service Render.
+
+### b) Pointer l'app vers ce backend et rebâtir l'APK
+
+Mets l'URL Render dans `EXPO_PUBLIC_BACKEND_URL` (les 3 profils d'`eas.json`, ou
+via `eas env:create`), puis relance le workflow **EAS Build**. L'APK joindra
+alors l'API partout.
+
 ## Notes
 
 - **Gestionnaire de paquets.** Le dépôt fournit `package-lock.json` (npm) ;

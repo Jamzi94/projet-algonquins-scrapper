@@ -5,6 +5,16 @@ __pycache__/
 data/raw/*
 data/processed/*
 data/cache/*
+
+# Catalogue Wikidata licence-clean VERSIONNÉ pour le déploiement (Render, etc.) :
+# métadonnées Wikidata (CC0) + EMBEDDINGS (pas de texte brut Wikipedia CC BY-SA,
+# conformément à CLAUDE.md). Ces artefacts permettent au backend déployé de servir
+# de vraies recommandations sans refaire l'ingestion SPARQL au build.
+!data/processed/items.parquet
+!data/processed/embeddings.npy
+!data/processed/embeddings_ids.json
+!data/processed/structured.parquet
+!data/processed/rated.parquet
 models/*.faiss
 models/*.joblib
 models/*.npy
