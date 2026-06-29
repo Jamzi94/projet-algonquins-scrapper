@@ -1,0 +1,40 @@
+# =============================================================================
+# SwipeNight — dépendances MINIMALES pour faire tourner le backend en SANDBOX.
+# Mongo en mémoire (mongomock-motor) + catalogue/reco via movie-reco (movreco).
+# Aucun mongod, aucune clé externe requis.
+#
+# Installation depuis swipe-movie/backend/ :
+#     pip install -r requirements-sandbox.txt
+#
+# (Le requirements.txt complet du projet reste la référence de production.)
+# =============================================================================
+
+# --- API web ---
+fastapi
+uvicorn
+
+# --- Client HTTP (utilisé pour les enrichissements externes optionnels, ex. TMDB) ---
+httpx
+
+# --- Authentification (auth.py fait `import jwt` -> PyJWT) ---
+PyJWT
+passlib
+bcrypt==4.0.1
+
+# --- Validation d'emails (modèles Pydantic) ---
+email-validator
+
+# --- Variables d'environnement (.env) ---
+python-dotenv
+
+# --- MongoDB ---
+# motor : vrai client Mongo si MONGO_URL pointe vers un serveur réel.
+motor
+# mongomock-motor : Mongo EN MÉMOIRE (API identique à motor) quand MONGO_URL
+# est absent/memory/mock — c'est ce qui rend la sandbox exécutable sans mongod.
+mongomock-motor
+
+# --- Moteur de recommandation movie-reco (synergie) ---
+# Installé en mode éditable ; movie-reco est le frère de swipe-movie.
+# Backend tfidf (sans torch). Chemin relatif depuis swipe-movie/backend/.
+-e ../../movie-reco

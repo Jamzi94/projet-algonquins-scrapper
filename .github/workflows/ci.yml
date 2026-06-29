@@ -1,0 +1,156 @@
+name: Tests & Simulation
+
+# Démarre la simulation/les tests de bout en bout, SANS aucune clé externe et
+# SANS serveur MongoDB (Mongo en mémoire via mongomock-motor) :
+#   - Backend  : install sandbox -> catalogue movie-reco (hors-ligne) -> pytest
+#                -> démarrage uvicorn + vérification de /api/provider-status.
+#   - Frontend : install -> vérification de types -> export web (SPA) -> artefact.
+#   - movie-reco : suite de non-régression du moteur de recommandation.
+#
+# TMDB reste désactivé ici (EXTERNAL_APIS_ENABLED=false) : tout tourne sur la
+# source licence-clean Wikidata (CC0) + Wikipedia (CC BY-SA).
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "swipe-movie/**"
+      - "movie-reco/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "swipe-movie/**"
+      - "movie-reco/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (FastAPI + synergie movie-reco, Mongo mémoire)
+    runs-on: ubuntu-latest
+    env:
+      MONGO_URL: memory                 # Mongo EN MÉMOIRE (mongomock-motor)
+      JWT_SECRET: ci-secret             # secret JWT déterministe pour les tests
+      DATA_SOURCE: wikidata             # catalogue + reco via le pont movie-reco
+      EXTERNAL_APIS_ENABLED: "false"    # TMDB désactivé : aucun réseau externe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: swipe-movie/backend/requirements-sandbox.txt
+
+      - name: Installer les dépendances backend (sandbox)
+        working-directory: swipe-movie/backend
+        run: |
+          python -m pip install --upgrade pip
+          # Installe aussi movie-reco en éditable (-e ../../movie-reco), backend
+          # tfidf SANS torch — chemin relatif : il FAUT être dans backend/.
+          pip install -r requirements-sandbox.txt
+          pip install pytest
+
+      - name: Générer un catalogue hors-ligne (movie-reco)
+        working-directory: movie-reco
+        run: |
+          # data/ est gitignoré : on fabrique un catalogue synthétique déterministe
+          # (Wikidata-like, aucun réseau) pour que le test e2e s'exécute au lieu
+          # d'être sauté. Emplacement par défaut lu par le pont : movie-reco/data.
+          python -c "from tests._synthetic import build_synthetic_catalog as b; b('data', enriched=True)"
+          ls -la data/processed
+
+      - name: Tests backend (pytest)
+        working-directory: swipe-movie/backend
+        run: python -m pytest tests/ -q
+
+      - name: Démarrer uvicorn et vérifier /api/provider-status
+        working-directory: swipe-movie/backend
+        run: |
+          uvicorn server:app --port 8000 --log-level warning &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/api/provider-status >/dev/null 2>&1; then
+              echo "Backend prêt après ${i}s"; break
+            fi
+            sleep 1
+          done
+          echo "--- GET /api/provider-status ---"
+          curl -fsS http://localhost:8000/api/provider-status | tee provider-status.json
+          echo
+          python - <<'PY'
+          import json
+          d = json.load(open("provider-status.json"))
+          assert d["data_source"] == "wikidata", d
+          assert d["catalog_source"] == "movreco", d
+          print("provider-status OK :", d["data_source"], "/", d["catalog_source"])
+          PY
+
+  frontend:
+    name: Frontend (Expo — vérif. types + export web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: swipe-movie/frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: swipe-movie/frontend/package-lock.json
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Vérification de types (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Export web (SPA) -> dist/
+        env:
+          EXPO_PUBLIC_BACKEND_URL: http://localhost:8000
+        run: npx expo export -p web
+
+      - name: Publier l'artefact web (dist/)
+        uses: actions/upload-artifact@v4
+        with:
+          name: swipenight-web
+          path: swipe-movie/frontend/dist
+          if-no-files-found: error
+
+  movie-reco:
+    name: movie-reco (non-régression du moteur)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: movie-reco/pyproject.toml
+
+      - name: Installer movie-reco (+ extras dev, backend tfidf sans torch)
+        working-directory: movie-reco
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Tests movie-reco (pytest)
+        working-directory: movie-reco
+        run: python -m pytest -q

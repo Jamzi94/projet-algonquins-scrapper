@@ -1,0 +1,80 @@
+project: movreco
+language: fr                 # langue des labels et synopsis (fr, en, ...)
+
+catalog:
+  # bornes du catalogue de candidats recupere depuis Wikidata
+  year_min: 1980
+  year_max: 2025
+  max_per_year: 1500         # plafond de films par annee (evite les timeouts SPARQL)
+
+matching:
+  fuzzy_threshold: 86        # score rapidfuzz minimal pour accepter un appariement
+
+embeddings:
+  backend: auto              # auto = sentence-transformers si dispo, sinon repli tfidf (sans torch)
+  model: paraphrase-multilingual-MiniLM-L12-v2   # multilingue, adapte au francais (backend sentence-transformers)
+  batch_size: 64
+  tfidf_dim: 256            # dimension de la reduction SVD du backend tfidf (sans torch)
+  tfidf_max_features: 50000 # vocabulaire max du backend tfidf
+
+synopsis:
+  full_text: true            # true = article Wikipedia complet, false = lead (resume) seul
+  max_chars: 6000            # tronque le texte integral a ce nombre de caracteres (full_text)
+
+features:
+  top_actors: 300            # nb max d'acteurs gardes en multi-hot (P161)
+  top_keywords: 100          # nb max de mots-cles gardes en multi-hot (P921)
+
+recommend:
+  top_n: 20
+  candidates: 400            # nb de candidats recuperes par FAISS avant re-ranking
+  mmr_lambda: 0.7            # 1.0 = pertinence pure, 0.0 = diversite pure
+  popularity_penalty: 0.15   # 0 = aucun de-biais, plus haut = penalise les blockbusters
+  serendipity: 0.2           # 0 = aucune, fraction du top-N reservee a des items pertinents mais eloignes
+
+active:
+  lambda_pop: 0.0            # poids de la popularite dans l'apprentissage actif (0 = exploration pure)
+
+model:
+  min_train: 20             # nb minimal de films notes pour autoriser le mode hybride
+
+evaluate:
+  ndcg_k: 10                # k du NDCG@k sur le split temporel
+  holdout_frac: 0.3         # fraction des films les plus recents reservee a l'evaluation
+
+tune:
+  # Grille d'hyperparametres balayee par `movreco tune` (recommend/tuning.sweep).
+  # Chaque combinaison cache une fraction des films AIMES, relance le pipeline sur
+  # le reste et mesure recall@k / ndcg@k.
+  grid:
+    mmr_lambda: [0.3, 0.5, 0.7, 0.9]       # 1.0 = pertinence pure, 0.0 = diversite pure
+    serendipity: [0.0, 0.1, 0.2, 0.3]      # fraction du top-N reservee a la nouveaute
+    popularity_penalty: [0.0, 0.15, 0.3]   # de-biais des blockbusters
+    candidates: [200, 400]                  # nb de candidats FAISS avant re-ranking
+  k: 10                     # k du recall@k / ndcg@k
+  holdout_frac: 0.3         # fraction des films aimes cachee pour l'evaluation
+
+cache:
+  enabled: true             # met en cache les appels Wikidata/Wikipedia sur disque
+  dir: data/cache           # dossier de cache (relatif a la racine du projet si non absolu)
+
+wikidata:
+  endpoint: https://query.wikidata.org/sparql
+  # PLACEHOLDER : remplacer "example.org" par un contact reel (politique User-Agent Wikimedia).
+  user_agent: "movreco/0.1 (https://example.org; mailto:contact@example.org)"
+  timeout: 60
+
+# Chemins (optionnel) : surcharges des emplacements par defaut ROOT/data et ROOT/models.
+# paths:
+#   data_dir: data
+#   models_dir: models
+
+llm:
+  enabled: false             # true pour activer le re-ranking et les explications LLM
+  model: claude-sonnet-4-6
+
+api:
+  host: 127.0.0.1            # adresse d'ecoute de l'API FastAPI (movreco serve)
+  port: 8000                 # port d'ecoute
+  default_mode: mvp          # mode par defaut de POST /recommend (stateless, multi-utilisateur)
+  default_n: 10              # taille du top-N par defaut

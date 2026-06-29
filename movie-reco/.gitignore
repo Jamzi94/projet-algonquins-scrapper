@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+data/raw/*
+data/processed/*
+data/cache/*
+models/*.faiss
+models/*.joblib
+models/*.npy
+!**/.gitkeep
+.DS_Store
+.ipynb_checkpoints/
+
+# Metadonnees pip install -e
+*.egg-info/

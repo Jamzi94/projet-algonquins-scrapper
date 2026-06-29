@@ -1,0 +1,87 @@
+name: EAS Build (app mobile, cloud)
+
+# Construit l'app SwipeNight via EAS Build (build dans le cloud Expo :
+# AUCUN SDK Android/Xcode requis sur le runner). Voie simple recommandée.
+#
+# Prérequis (une seule fois) :
+#   1. Créer un compte Expo (https://expo.dev) et un jeton d'accès :
+#      Account settings -> Access tokens -> Create token.
+#   2. Ajouter ce jeton dans le dépôt GitHub :
+#      Settings -> Secrets and variables -> Actions -> New repository secret
+#      Name = EXPO_TOKEN, Value = <le jeton>.
+#   3. (Optionnel) Définir l'URL du backend joignable par l'app : soit dans
+#      swipe-movie/frontend/eas.json (clé env.EXPO_PUBLIC_BACKEND_URL de chaque
+#      profil), soit comme variable d'environnement EAS (eas env:create).
+#
+# Lancement : onglet Actions -> "EAS Build (app mobile, cloud)" -> Run workflow.
+# Le binaire (APK/AAB/IPA) est récupérable depuis le tableau de bord Expo
+# (https://expo.dev -> Projects -> Builds) une fois le build cloud terminé.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Plateforme à construire"
+        type: choice
+        options: [android, ios, all]
+        default: android
+      profile:
+        description: "Profil EAS (cf. eas.json) — preview=APK, production=AAB"
+        type: choice
+        options: [preview, production, development]
+        default: preview
+      wait:
+        description: "Attendre la fin du build (sinon on soumet et on rend la main)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: EAS Build (cloud)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: swipe-movie/frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Vérifier la présence du secret EXPO_TOKEN
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Le secret EXPO_TOKEN est manquant. Ajoute-le dans" \
+                 "Settings -> Secrets and variables -> Actions (voir l'en-tête de ce workflow)."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: swipe-movie/frontend/package-lock.json
+
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Lier le projet EAS (idempotent)
+        run: eas init --non-interactive
+
+      - name: Lancer le build EAS (cloud)
+        run: |
+          eas build \
+            --platform "${{ inputs.platform }}" \
+            --profile "${{ inputs.profile }}" \
+            --non-interactive \
+            ${{ inputs.wait && '--wait' || '--no-wait' }}

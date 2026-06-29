@@ -1,0 +1,177 @@
+{
+  "app_name": "SwipeNight",
+  "personality": "6 Glass / Luxe DARK",
+  "personality_one_liner": "A cinematic, immersive, and premium dark-mode experience that makes content the hero, paired with sleek glassmorphic layers for social swiping.",
+  "color": {
+    "surface": "#050507",
+    "onSurface": "#F3F3F4",
+    "surfaceSecondary": "#141417",
+    "onSurfaceSecondary": "#A1A1AA",
+    "surfaceTertiary": "#222227",
+    "onSurfaceTertiary": "#D4D4D8",
+    "surfaceInverse": "#F8F8F8",
+    "onSurfaceInverse": "#000000",
+    "brand": "#E11D48",
+    "brandPrimary": "#E11D48",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#BE123C",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#4C0519",
+    "onBrandTertiary": "#FDA4AF",
+    "success": "#10B981",
+    "onSuccess": "#022C22",
+    "warning": "#F59E0B",
+    "onWarning": "#451A03",
+    "error": "#EF4444",
+    "onError": "#450A0A",
+    "info": "#52525B",
+    "onInfo": "#FAFAFA",
+    "border": "#27272A",
+    "borderStrong": "#3F3F46",
+    "divider": "#1F1F22"
+  },
+  "typography": {
+    "displayFontFamily": "Fraunces",
+    "textFontFamily": "Satoshi",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous cinematic spacing. Content sits flush to edges where possible (carousels bleed off-screen).",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Bottom tab bar",
+      "Sticky header backgrounds over carousels",
+      "Floating action buttons on swipe cards",
+      "Match score badges",
+      "Detail page bottom floating action bars"
+    ],
+    "dont's": [
+      "Form fields",
+      "Every list row",
+      "Body content areas",
+      "Basic movie poster cards"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Onboarding & Calibration",
+      "purpose": "Configure preferences (streaming platforms, genres) and rapid-swipe 20 titles to calibrate the recommendation engine.",
+      "states": {
+        "loading": "Centered brand-colored spinner.",
+        "empty": "N/A",
+        "error": "Failed to load preferences. Retry button."
+      },
+      "layout": "Step-by-step full-screen flow. Dark background. Genre selection uses brandTertiary tinted chips. Swipe calibration shows edge-to-edge cards with large Fraunces titles."
+    },
+    {
+      "name": "Home (Recommendations)",
+      "purpose": "Discover personalized recommendations through horizontal carousels.",
+      "states": {
+        "loading": "Skeleton UI for carousels.",
+        "empty": "No recommendations yet. CTA to calibrate.",
+        "error": "Failed to load feed. Retry button."
+      },
+      "layout": "Large hero card at the top with a glass-frosted overlay. Below it, horizontal carousels (posters with 2:3 aspect ratio). Carousel items bleed off the right edge. No blue used anywhere."
+    },
+    {
+      "name": "Browse",
+      "purpose": "Search and filter through the entire catalog.",
+      "states": {
+        "loading": "Skeleton grid.",
+        "empty": "No results found for your filters. Clear filters button.",
+        "error": "Failed to load catalog. Retry button."
+      },
+      "layout": "Sticky glass header containing search input and horizontally scrolling filter chips (Format, Genre, Platform). Below, a 2-column grid of poster cards."
+    },
+    {
+      "name": "Rooms (Swipe Mode)",
+      "purpose": "Tinder-style group swiping to find a movie to watch together.",
+      "states": {
+        "loading": "Connecting to room...",
+        "empty": "No active rooms. Create or Join CTA.",
+        "error": "Connection lost. Reconnect button."
+      },
+      "layout": "Lobby screen showing avatars. Swiping screen features a massive full-screen image card (using react-native-reanimated for swipe gestures). A floating glass pill at the bottom houses the actions: Veto (Zinc), Like (Emerald), Superlike (Amber)."
+    },
+    {
+      "name": "Content Detail",
+      "purpose": "Deep dive into a movie/show, showing match score, platforms, and trailer.",
+      "states": {
+        "loading": "Skeleton with large backdrop.",
+        "empty": "Content unavailable.",
+        "error": "Failed to load details. Retry button."
+      },
+      "layout": "Parallax backdrop image at the top with a heavy top-to-bottom gradient scrim. Title in large Fraunces font. Match score in a glass badge. Cast horizontal list. Floating primary CTA 'Add to Watchlist' at the bottom."
+    }
+  ],
+  "images": {
+    "hero_dune": {
+      "url": "https://images.unsplash.com/photo-1727104619523-0bf6edcaf593?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxEdW5lJTIwUGFydCUyMFR3byUyMG1vdmllJTIwcG9zdGVyfGVufDB8fHx8MTc4MjE3OTQxM3ww&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract desert scene reflecting Dune"
+    },
+    "hero_interstellar": {
+      "url": "https://images.unsplash.com/photo-1673692011577-b98b96b0ed3c",
+      "alt": "Cinematic dark scene representing Interstellar"
+    },
+    "anime_jujutsu": {
+      "url": "https://images.pexels.com/photos/7253624/pexels-photo-7253624.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Anime cosplayer poster representing Jujutsu Kaisen"
+    },
+    "empty_room": {
+      "url": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba",
+      "alt": "Dark cinematic empty red theater chairs"
+    }
+  },
+  "haptics": {
+    "button_press": "light",
+    "swipe_left": "medium",
+    "swipe_right": "success",
+    "superlike": "heavy",
+    "tab_change": "selection"
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: Adhere strictly to the 'NO BLUE' policy. Use Zinc (#52525B) for neutral/info states and Emerald/Amber for positive actions.",
+    "CRITICAL: Cap all font weights at 500. Do not use 600, 700, bold, or black. Use size (e.g., '2xl', '3xl') and font family (Fraunces vs Satoshi) for hierarchy.",
+    "CRITICAL: Any text overlaid on images MUST have a 3-stop top-to-bottom linear gradient scrim (transparent -> 20% surface -> 80% surface) to guarantee contrast. Put the text in the bottom 30% of the image.",
+    "SWIPE CARDS: Build the Tinder-style swipe cards using 'react-native-reanimated' and 'react-native-gesture-handler'. The cards should fill most of the screen, with a floating glassmorphic action bar at the bottom.",
+    "GLASSMORPHISM: Use 'expo-blur' for the bottom tab bar, sticky headers over carousels, and floating action pill on the swipe screen. Ensure the background behind the glass has a tinted overlay (≥75% opacity) to guarantee readability.",
+    "SAFE AREA: Respect safe areas at every screen root. Content must not sit under the notch or home indicator.",
+    "HAPTICS: Implement subtle haptics on swipes (left/right/superlike) and major CTA presses."
+  ]
+}
