@@ -46,7 +46,7 @@ export default function Login() {
         <ScrollView contentContainerStyle={[styles.container, { paddingTop: insets.top + SP.xxxl }]} keyboardShouldPersistTaps="handled">
           <View style={styles.logoRow}>
             <Ionicons name="flame" size={34} color={C.brand} />
-            <Text style={styles.logo}>SwipeNight</Text>
+            <Text style={styles.logo}>CineFeel</Text>
           </View>
           <Text style={[T.body, { marginBottom: SP.xxl }]}>
             Find what to watch — solo or with friends.

@@ -83,7 +83,7 @@ export default function Settings() {
           This product uses the TMDB API but is not endorsed or certified by TMDB.
         </Text>
         <Text style={[styles.creditText, { marginTop: SP.sm }]}>
-          SwipeNight is currently a free, non-commercial beta. Movie, series and anime
+          CineFeel is currently a free, non-commercial beta. Movie, series and anime
           metadata may be provided by The Movie Database (TMDB); when external data is
           unavailable the app uses its built-in seed catalog.
         </Text>
@@ -98,7 +98,7 @@ export default function Settings() {
         {status?.reason ? <Text style={styles.devReason}>{status.reason}</Text> : null}
       </View>
 
-      <Text style={styles.note}>SwipeNight never exposes your viewing history without your consent. Rooms expire automatically after use.</Text>
+      <Text style={styles.note}>CineFeel never exposes your viewing history without your consent. Rooms expire automatically after use.</Text>
     </ScrollView>
   );
 }
