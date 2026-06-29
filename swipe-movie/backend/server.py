@@ -249,11 +249,24 @@ class RelaunchBody(BaseModel):
 async def load_feature_store():
     CONTENTS.clear()
     CONTENT_VECTORS.clear()
-    docs = await db.contents.find({}, {"_id": 0}).to_list(5000)
+    docs = await db.contents.find({}, {"_id": 0}).to_list(20000)
     for c in docs:
         CONTENTS[c["id"]] = c
         CONTENT_VECTORS[c["id"]] = R.build_content_vector(c)
     logger.info("Feature store loaded: %d contents", len(CONTENTS))
+
+
+async def _reseed_catalog() -> tuple[int, str]:
+    """Vide la collection contents et la RECONSTRUIT depuis le catalogue courant
+    (movie-reco/Wikidata + dates corrigées). Ne touche QUE ``contents`` — comptes,
+    swipes, rooms (autres collections) sont préservés. L'appelant doit ensuite
+    appeler ``load_feature_store()`` pour rafraîchir l'état en mémoire.
+    """
+    catalog, used_source = _boot_catalog()
+    await db.contents.delete_many({})
+    if catalog:
+        await db.contents.insert_many([{**c} for c in catalog])
+    return len(catalog), used_source
 
 
 async def get_user_states(user_id):
@@ -1442,6 +1455,25 @@ async def refresh_covers(limit: int = 300, language: str = "",
             "provider_status": get_provider_status()}
 
 
+@api.post("/admin/reseed")
+async def admin_reseed(user=Depends(get_current_user)):
+    """Rafraîchit TOUT le catalogue depuis la base corrigée (dates/covers).
+
+    Vide ``contents`` et le re-seede depuis le catalogue courant (movie-reco /
+    Wikidata, dates corrigées), recharge le feature store, puis relance
+    l'enrichissement TMDB (vraies dates + affiches + synopsis) en tâche de fond si
+    TMDB est actif. Comptes/swipes/rooms PRÉSERVÉS (autres collections).
+    """
+    n, src = await _reseed_catalog()
+    await load_feature_store()
+    if can_use_tmdb():
+        import asyncio
+        asyncio.create_task(_auto_refresh_covers_bg())
+    return {"reseeded": n, "source": src,
+            "tmdb_enrichment": "scheduled" if can_use_tmdb() else "disabled",
+            "provider_status": get_provider_status()}
+
+
 @api.get("/providers/{content_id}")
 async def content_providers(content_id: str, country: str = "", user=Depends(get_current_user)):
     c = CONTENTS.get(content_id)
@@ -1641,7 +1673,14 @@ async def _auto_refresh_covers_bg(chunk: int = 40, cap: int = 8000):
 
 @app.on_event("startup")
 async def startup():
-    if await db.contents.count_documents({}) == 0:
+    # RESEED_ON_START=1 : force le rechargement complet du catalogue (dates/covers
+    # corrigées) même si la base est déjà peuplée (utile avec un Mongo persistant
+    # type Atlas). À retirer après usage pour ne pas re-seeder à chaque démarrage.
+    force = os.environ.get("RESEED_ON_START", "").strip().lower() in ("1", "true", "yes", "on")
+    if force:
+        n, used_source = await _reseed_catalog()
+        logger.info("RESEED_ON_START : catalogue rechargé (%d, source=%s)", n, used_source)
+    elif await db.contents.count_documents({}) == 0:
         catalog, used_source = _boot_catalog()
         if catalog:
             await db.contents.insert_many([{**c} for c in catalog])

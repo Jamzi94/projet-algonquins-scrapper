@@ -317,6 +317,9 @@ async def fetch_cover(content, language=None):
         if va:
             overlay["external_rating"] = va
             overlay["vote_count"] = best.get("vote_count") or 0
+        ov = (best.get("overview") or "").strip()
+        if ov:                                 # synopsis TMDB (langue configurée) pour l'affichage
+            overlay["overview"] = ov
     return overlay
 
 
