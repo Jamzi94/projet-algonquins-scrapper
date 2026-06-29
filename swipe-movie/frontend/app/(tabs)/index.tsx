@@ -94,7 +94,7 @@ export default function Home() {
             <Image source={{ uri: hero.content.backdrop_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
             <LinearGradient colors={["transparent", "rgba(5,5,7,0.5)", C.surface]} style={StyleSheet.absoluteFill} />
             <View style={[styles.heroTop, { paddingTop: insets.top + SP.sm }]}>
-              <Text style={styles.brand}>SwipeNight</Text>
+              <Text style={styles.brand}>CineFeel</Text>
               <MatchBadge score={hero.match_score} />
             </View>
             <View style={styles.heroInfo}>

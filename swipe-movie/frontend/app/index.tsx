@@ -11,7 +11,7 @@ export default function Index() {
   if (!ready) {
     return (
       <View style={{ flex: 1, backgroundColor: C.surface }}>
-        <Loader label="SwipeNight" />
+        <Loader label="CineFeel" />
       </View>
     );
   }
