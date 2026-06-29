@@ -269,6 +269,41 @@ def normalize_tmdb_tv(tv, credits=None, videos=None, providers=None, country=Non
     }
 
 
+async def fetch_cover(content, language=None):
+    """Léger : 1 seul appel TMDB (search) pour récupérer l'AFFICHE d'un contenu.
+
+    Bien plus rapide que :func:`enrich_content_from_tmdb` (pas de details/credits/
+    videos/providers) — pensé pour renseigner les covers du catalogue en lot.
+    Renvoie un dict {poster_url, backdrop_url, external_ids, image_source} ou {}
+    si TMDB est désactivé / aucun résultat / pas d'affiche.
+    """
+    if not tmdb_enabled():
+        return {}
+    title = (content.get("title") or "").strip()
+    if not title:
+        return {}
+    ctype = "movie" if content.get("type") == "movie" else "tv"
+    results = (await search_movies(title, language=language) if ctype == "movie"
+               else await search_tv(title, language=language))
+    if not results:
+        return {}
+    # Si l'année est connue, on privilégie le résultat dont la date correspond.
+    if content.get("year"):
+        yr = str(content["year"])
+        key = "release_date" if ctype == "movie" else "first_air_date"
+        results = sorted(results, key=lambda r: 0 if str(r.get(key, "")).startswith(yr) else 1)
+    best = results[0]
+    poster = _img(best.get("poster_path"))
+    if not poster:
+        return {}
+    return {
+        "poster_url": poster,
+        "backdrop_url": _img(best.get("backdrop_path"), "w780"),
+        "external_ids": {"tmdb": best.get("id")},
+        "image_source": "tmdb",
+    }
+
+
 async def enrich_content_from_tmdb(content, country=None):
     """
     Given a local content doc, fetch full TMDB metadata and return a dict of
