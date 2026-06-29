@@ -1,0 +1,39 @@
+name: Keep-alive backend (Render)
+
+# Ping régulier du backend Render pour éviter la mise en veille du plan gratuit
+# (le service s'endort après ~15 min d'inactivité ; 1er appel ensuite = 30-60 s).
+#
+# Notes :
+#  - Les crons GitHub Actions peuvent être décalés de quelques minutes et sont
+#    suspendus après ~60 jours SANS activité sur le dépôt (push pour réarmer).
+#  - Garder un service Render gratuit éveillé ~24/7 consomme ses heures-instance
+#    mensuelles (750 h/mois ≈ un seul service en continu).
+#  - Pour pointer un autre backend : définis la variable de dépôt
+#    RENDER_BACKEND_URL (Settings → Secrets and variables → Actions → Variables).
+
+on:
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *" # ~ toutes les 10 min (minute décalée de :00)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/provider-status
+        env:
+          BACKEND_URL: ${{ vars.RENDER_BACKEND_URL || 'https://swipenight-backend.onrender.com' }}
+        run: |
+          URL="${BACKEND_URL%/}/api/provider-status"
+          echo "Ping $URL"
+          # --max-time large : le réveil à froid peut prendre ~30-60 s.
+          for i in 1 2; do
+            if curl -fsS --max-time 90 "$URL" -o /dev/null; then
+              echo "Backend OK (tentative $i)"; exit 0
+            fi
+            echo "Échec tentative $i, nouvel essai dans 15 s..."; sleep 15
+          done
+          echo "::warning::Backend injoignable après 2 tentatives (peut-être en cours de réveil)."

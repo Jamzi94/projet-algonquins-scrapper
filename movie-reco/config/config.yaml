@@ -3,9 +3,9 @@ language: fr                 # langue des labels et synopsis (fr, en, ...)
 
 catalog:
   # bornes du catalogue de candidats recupere depuis Wikidata
-  year_min: 1980
-  year_max: 2025
-  max_per_year: 1500         # plafond de films par annee (evite les timeouts SPARQL)
+  year_min: 2000
+  year_max: 2024
+  max_per_year: 20           # top-N films les plus POPULAIRES par annee (catalogue swipe)
 
 matching:
   fuzzy_threshold: 86        # score rapidfuzz minimal pour accepter un appariement
@@ -61,7 +61,7 @@ cache:
 wikidata:
   endpoint: https://query.wikidata.org/sparql
   # PLACEHOLDER : remplacer "example.org" par un contact reel (politique User-Agent Wikimedia).
-  user_agent: "movreco/0.1 (https://example.org; mailto:contact@example.org)"
+  user_agent: "movreco/0.1 (https://github.com/Jamzi94/projet-algonquins-scrapper)"
   timeout: 60
 
 # Chemins (optionnel) : surcharges des emplacements par defaut ROOT/data et ROOT/models.

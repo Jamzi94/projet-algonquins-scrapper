@@ -30,6 +30,8 @@ python-dotenv
 # --- MongoDB ---
 # motor : vrai client Mongo si MONGO_URL pointe vers un serveur réel.
 motor
+# dnspython : requis par pymongo pour résoudre les URI mongodb+srv:// (MongoDB Atlas).
+dnspython
 # mongomock-motor : Mongo EN MÉMOIRE (API identique à motor) quand MONGO_URL
 # est absent/memory/mock — c'est ce qui rend la sandbox exécutable sans mongod.
 mongomock-motor
