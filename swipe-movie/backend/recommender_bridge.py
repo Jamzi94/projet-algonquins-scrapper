@@ -244,6 +244,11 @@ class SynergyEngine:
         out: list[dict] = []
         for row in items.itertuples(index=False):
             d = row._asdict()
+            _img = d.get("image")
+            # Image Wikidata (P18) -> URL Commons mise à l'échelle : base "libre"
+            # des covers (souvent une photo/scène plutôt qu'une affiche). TMDB peut
+            # ensuite fournir la vraie affiche si activé (enrichissement, cf. server).
+            _poster = f"{_img}?width=500" if isinstance(_img, str) and _img else None
             out.append(
                 {
                     "id": str(d["qid"]),
@@ -255,6 +260,7 @@ class SynergyEngine:
                     "cast": _split_pipe(d.get("cast")),
                     "keywords": _split_pipe(d.get("keywords")),
                     "languages": _split_pipe(d.get("languages")),
+                    "poster_url": _poster,
                     "source": "wikidata",
                 }
             )

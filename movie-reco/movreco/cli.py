@@ -73,6 +73,7 @@ def _normalize_catalog(df: pd.DataFrame) -> pd.DataFrame:
         "date",
         "popularity",
         "imdb",
+        "image",
     ]
     if df.empty:
         return pd.DataFrame(columns=cols)

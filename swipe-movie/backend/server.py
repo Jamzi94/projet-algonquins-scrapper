@@ -97,7 +97,10 @@ def _bridge_content_to_doc(c: dict) -> dict:
         "original_title": c.get("title", ""),
         "year": c.get("year"),
         "overview": c.get("overview", ""),
-        "poster_url": None,
+        # Cover "libre" issue de Wikidata (P18). None si absente : le frontend
+        # affiche alors un placeholder, et TMDB peut renseigner la vraie affiche
+        # via l'enrichissement (refresh_covers / enrich) si la clé est active.
+        "poster_url": c.get("poster_url"),
         "backdrop_url": None,
         "runtime": c.get("runtime"),
         "genres": c.get("genres", []) or [],
@@ -116,7 +119,7 @@ def _bridge_content_to_doc(c: dict) -> dict:
         "vote_count": 0,
         "popularity": c.get("popularity", 0) or 0,
         "metadata_source": "wikidata",
-        "image_source": None,
+        "image_source": ("wikidata" if c.get("poster_url") else None),
         "external_ids": {"wikidata": str(c["id"])},
         "source": c.get("source", "wikidata"),
         "source_id": str(c["id"]),
@@ -1400,6 +1403,45 @@ async def refresh_trending(user=Depends(get_current_user)):
     return {"inserted_count": inserted, "updated_count": updated, "skipped_count": skipped}
 
 
+@api.post("/contents/refresh-covers")
+async def refresh_covers(limit: int = 300, language: str = "",
+                         user=Depends(get_current_user)):
+    """Renseigne les AFFICHES (covers) du catalogue via TMDB (1 appel/film).
+
+    Synergie Wikidata × TMDB : le catalogue reste Wikidata (licence-clean) ; TMDB
+    n'ajoute QUE l'affiche (et l'id/backdrop). Traite jusqu'à ``limit`` contenus
+    par appel — priorité à ceux SANS affiche — pour éviter timeouts et limites de
+    débit ; rappeler tant que ``remaining`` > 0. Sans clé TMDB : no-op (les covers
+    Wikidata P18 déjà présentes restent affichées).
+    """
+    if not can_use_tmdb():
+        return {"updated": 0, "remaining": 0, "provider_status": get_provider_status()}
+    tmdb = _tmdb()
+    targets = [c for c in CONTENTS.values() if c.get("image_source") != "tmdb"]
+    # Les contenus SANS aucune affiche d'abord, puis ceux à upgrader (image Wikidata).
+    targets.sort(key=lambda c: 0 if not c.get("poster_url") else 1)
+    targets = targets[:max(0, int(limit))]
+    updated = 0
+    for c in targets:
+        try:
+            fields = await tmdb.fetch_cover(c, language or None)
+        except Exception:  # un échec ponctuel ne doit pas casser le lot
+            fields = {}
+        if not fields:
+            continue
+        upd = {k: v for k, v in fields.items() if v not in (None, [], "")}
+        upd["external_ids"] = {**(c.get("external_ids") or {}), **(fields.get("external_ids") or {})}
+        upd["updated_at"] = now_iso()
+        await db.contents.update_one({"id": c["id"]}, {"$set": upd})
+        merged = {**c, **upd}
+        CONTENTS[c["id"]] = merged
+        CONTENT_VECTORS[c["id"]] = R.build_content_vector(merged)
+        updated += 1
+    remaining = sum(1 for c in CONTENTS.values() if c.get("image_source") != "tmdb")
+    return {"updated": updated, "remaining": remaining,
+            "provider_status": get_provider_status()}
+
+
 @api.get("/providers/{content_id}")
 async def content_providers(content_id: str, country: str = "", user=Depends(get_current_user)):
     c = CONTENTS.get(content_id)
@@ -1554,6 +1596,49 @@ def _boot_catalog() -> tuple[list[dict], str]:
     return catalog, "seed"
 
 
+async def _auto_refresh_covers_bg(chunk: int = 40, cap: int = 8000):
+    """Tâche de FOND : renseigne les affiches TMDB du catalogue progressivement.
+
+    Non bloquante, idempotente (chaque contenu n'est tenté qu'une fois ; on saute
+    ceux déjà ``image_source=tmdb``), polie (petite pause entre lots). S'arrête
+    quand il n'y a plus de cible. Sans clé TMDB : ne fait rien. Avec un vrai Mongo
+    (Atlas), converge une seule fois (les covers persistent).
+    """
+    if not can_use_tmdb():
+        return
+    import asyncio
+    tmdb = _tmdb()
+    attempted: set[str] = set()
+    done = 0
+    try:
+        while done < cap:
+            targets = [c for c in CONTENTS.values()
+                       if c.get("image_source") != "tmdb" and c["id"] not in attempted]
+            if not targets:
+                break
+            targets.sort(key=lambda c: 0 if not c.get("poster_url") else 1)
+            for c in targets[:chunk]:
+                attempted.add(c["id"])
+                done += 1
+                try:
+                    fields = await tmdb.fetch_cover(c)
+                except Exception:
+                    fields = {}
+                if not fields:
+                    continue
+                upd = {k: v for k, v in fields.items() if v not in (None, [], "")}
+                upd["external_ids"] = {**(c.get("external_ids") or {}),
+                                       **(fields.get("external_ids") or {})}
+                upd["updated_at"] = now_iso()
+                await db.contents.update_one({"id": c["id"]}, {"$set": upd})
+                CONTENTS[c["id"]] = {**c, **upd}
+                CONTENT_VECTORS[c["id"]] = R.build_content_vector(CONTENTS[c["id"]])
+            await asyncio.sleep(1.0)
+        logger.info("Auto-refresh covers TMDB terminé (%d contenus tentés).", done)
+    except Exception as e:  # ne JAMAIS casser l'app pour des covers
+        logger.warning("Auto-refresh covers TMDB interrompu : %s", e)
+
+
 @app.on_event("startup")
 async def startup():
     if await db.contents.count_documents({}) == 0:
@@ -1569,6 +1654,10 @@ async def startup():
         logger.info("TMDB enabled (free non-commercial beta mode).")
     await seed_fake_users_and_content()
     await seed_demo_room()
+    if can_use_tmdb():
+        import asyncio
+        asyncio.create_task(_auto_refresh_covers_bg())
+        logger.info("Auto-refresh des covers TMDB planifié (tâche de fond).")
     logger.info("SwipeNight startup complete")
 
 

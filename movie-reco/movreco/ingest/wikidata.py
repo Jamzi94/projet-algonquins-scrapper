@@ -234,6 +234,7 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
                (GROUP_CONCAT(DISTINCT ?k; separator="|") AS ?keywords)
                (GROUP_CONCAT(DISTINCT ?lg; separator="|") AS ?languages)
                (SAMPLE(?dur) AS ?duration)
+               (SAMPLE(?img) AS ?image)
         WHERE {{
           VALUES ?film {{ {values} }}
           OPTIONAL {{ ?film wdt:P577 ?date . }}
@@ -245,6 +246,7 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
           OPTIONAL {{ ?film wdt:P921 ?ki . ?ki rdfs:label ?k . FILTER(lang(?k)="{lang}") }}
           OPTIONAL {{ ?film wdt:P364 ?lgi . ?lgi rdfs:label ?lg . FILTER(lang(?lg)="{lang}") }}
           OPTIONAL {{ ?film wdt:P2047 ?dur . }}
+          OPTIONAL {{ ?film wdt:P18 ?img . }}
           OPTIONAL {{ ?film wdt:P345 ?imdb . }}
           SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang},en". }}
         }}
