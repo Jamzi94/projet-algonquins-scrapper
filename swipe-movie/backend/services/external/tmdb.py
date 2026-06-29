@@ -269,13 +269,21 @@ def normalize_tmdb_tv(tv, credits=None, videos=None, providers=None, country=Non
     }
 
 
-async def fetch_cover(content, language=None):
-    """Léger : 1 seul appel TMDB (search) pour récupérer l'AFFICHE d'un contenu.
+def _enrich_mode() -> str:
+    """TMDB_ENRICH : 'full' (défaut) = affiche + faits réels (date, note) ;
+    'covers' = affiche seule. (TMDB lui-même reste désactivable via licensing.)"""
+    return os.environ.get("TMDB_ENRICH", "full").strip().lower()
 
-    Bien plus rapide que :func:`enrich_content_from_tmdb` (pas de details/credits/
-    videos/providers) — pensé pour renseigner les covers du catalogue en lot.
-    Renvoie un dict {poster_url, backdrop_url, external_ids, image_source} ou {}
-    si TMDB est désactivé / aucun résultat / pas d'affiche.
+
+async def fetch_cover(content, language=None):
+    """Léger : 1 seul appel TMDB (search) pour CONSOLIDER un contenu.
+
+    Récupère l'AFFICHE et, en mode ``TMDB_ENRICH=full`` (défaut), la VRAIE date de
+    sortie + la note TMDB depuis le MÊME résultat de recherche (aucun appel en
+    plus) — TMDB devient la source de vérité factuelle. ``TMDB_ENRICH=covers`` :
+    affiche seule. Bien plus rapide que :func:`enrich_content_from_tmdb` (pas de
+    details/credits/videos). Renvoie les champs à fusionner, ou {} si TMDB
+    désactivé / aucun résultat.
     """
     if not tmdb_enabled():
         return {}
@@ -283,25 +291,33 @@ async def fetch_cover(content, language=None):
     if not title:
         return {}
     ctype = "movie" if content.get("type") == "movie" else "tv"
+    date_key = "release_date" if ctype == "movie" else "first_air_date"
     results = (await search_movies(title, language=language) if ctype == "movie"
                else await search_tv(title, language=language))
     if not results:
         return {}
-    # Si l'année est connue, on privilégie le résultat dont la date correspond.
+    # Si l'année (approx. Wikidata) est connue, on privilégie le résultat dont la
+    # date correspond — départage utile pour les titres homonymes/remakes.
     if content.get("year"):
         yr = str(content["year"])
-        key = "release_date" if ctype == "movie" else "first_air_date"
-        results = sorted(results, key=lambda r: 0 if str(r.get(key, "")).startswith(yr) else 1)
+        results = sorted(results, key=lambda r: 0 if str(r.get(date_key, "")).startswith(yr) else 1)
     best = results[0]
+    # external_ids + image_source=tmdb : marque le contenu "traité par TMDB"
+    # (convergence de l'enrichissement par lots, même sans affiche disponible).
+    overlay = {"external_ids": {"tmdb": best.get("id")}, "image_source": "tmdb"}
     poster = _img(best.get("poster_path"))
-    if not poster:
-        return {}
-    return {
-        "poster_url": poster,
-        "backdrop_url": _img(best.get("backdrop_path"), "w780"),
-        "external_ids": {"tmdb": best.get("id")},
-        "image_source": "tmdb",
-    }
+    if poster:
+        overlay["poster_url"] = poster
+        overlay["backdrop_url"] = _img(best.get("backdrop_path"), "w780")
+    if _enrich_mode() != "covers":
+        rd = (best.get(date_key) or "")[:4]
+        if rd.isdigit():                       # VRAIE date de sortie -> écrase l'approx Wikidata
+            overlay["year"] = int(rd)
+        va = best.get("vote_average") or 0
+        if va:
+            overlay["external_rating"] = va
+            overlay["vote_count"] = best.get("vote_count") or 0
+    return overlay
 
 
 async def enrich_content_from_tmdb(content, country=None):

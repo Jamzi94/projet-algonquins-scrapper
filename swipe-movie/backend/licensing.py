@@ -126,4 +126,6 @@ def get_provider_status() -> dict:
         "data_source": data_source(),
         "catalog_source": catalog_source(),
         "reco_via_bridge": reco_via_bridge(),
+        # Étendue de l'enrichissement TMDB : full (affiche + date/note réelles) | covers.
+        "tmdb_enrich": os.environ.get("TMDB_ENRICH", "full").strip().lower(),
     }
