@@ -159,7 +159,7 @@ def lookup_film(title: str, cfg: dict, limit: int = 12) -> list[dict]:
     lang = _sparql_literal(cfg.get("language", "fr"))
     query = PREFIXES + f"""
     SELECT ?film ?filmLabel ?imdb
-           (SAMPLE(?date) AS ?date)
+           (MIN(STR(?date)) AS ?date)
            (GROUP_CONCAT(DISTINCT ?ti; separator="|") AS ?title)
            (GROUP_CONCAT(DISTINCT ?al; separator="|") AS ?altLabels)
     WHERE {{
@@ -199,7 +199,7 @@ def fetch_catalog_by_year(year: int, cfg: dict) -> list[dict]:
     maxn = cfg["catalog"].get("max_per_year", 1500)
     query = PREFIXES + f"""
     SELECT ?film ?filmLabel ?imdb
-           (SAMPLE(?date) AS ?date)
+           (MIN(STR(?date)) AS ?date)
            (SAMPLE(?sl) AS ?popularity)
     WHERE {{
       ?film wdt:P31 wd:{FILM_QID} ; wdt:P577 ?date .
@@ -225,7 +225,7 @@ def fetch_items_metadata(qids: list[str], cfg: dict) -> list[dict]:
         values = " ".join(f"wd:{q}" for q in batch)
         query = PREFIXES + f"""
         SELECT ?film ?filmLabel ?imdb
-               (SAMPLE(?date) AS ?date)
+               (MIN(STR(?date)) AS ?date)
                (SAMPLE(?sl) AS ?popularity)
                (GROUP_CONCAT(DISTINCT ?g; separator="|") AS ?genres)
                (GROUP_CONCAT(DISTINCT ?d; separator="|") AS ?directors)
